@@ -5,8 +5,8 @@ import { socket } from '@/lib/socket';
 
 // Expanded list of emojis for large crowds
 const EMOJIS = [
-  '🎮', '🌭', '🔥', '⭐', '🍕', '🦊', '⚡', '💀', '🤖', '👑',
-  '🦄', '🐱', '🐶', '🐵', '👻', '👽', '💩', '🎉', '🍎', '🍩',
+  '🍒', '🌭', '🔥', '⭐', '🍕', '🦊', '⚡', '💀', '🤖', '👑',
+  '🦄', '🐱', '🐶', '🐵', '👻', '👽', '💩', '🎉', '❤️', '🍩',
   '🎸', '🏆', '💎', '🎯', '🥑', '🍔', '🚀', '🍆', '🐉', '🐳'
 ];
 const COLORS = ['#a855f7', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
@@ -17,8 +17,9 @@ export default function PlayPage() {
   const [selectedColor, setSelectedColor] = useState('#a855f7');
   
   const [joined, setJoined] = useState(false);
-  const [isEditingName, setIsEditingName] = useState(false); // Allows quick renaming
+  const [isEditingName, setIsEditingName] = useState(false);
   const [error, setError] = useState('');
+  const [debugLog, setDebugLog] = useState(''); // <-- On-screen debugger state
   
   const [gameStarted, setGameStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -26,6 +27,15 @@ export default function PlayPage() {
   const [selectedAnswer, setSelectedAnswer] = useState(null);
 
   useEffect(() => {
+    // Listen to socket connection events
+    socket.on('connect', () => {
+      setDebugLog('Socket Connected! ID: ' + socket.id);
+    });
+
+    socket.on('connect_error', (err) => {
+      setDebugLog('Connection Error: ' + err.message);
+    });
+
     socket.on('next-question', (qData) => {
       setGameStarted(true);
       setCurrentQuestion(qData);
@@ -39,6 +49,8 @@ export default function PlayPage() {
     });
 
     return () => {
+      socket.off('connect');
+      socket.off('connect_error');
       socket.off('next-question');
       socket.off('game-over');
     };
@@ -51,11 +63,21 @@ export default function PlayPage() {
       return;
     }
 
+    setDebugLog('Emitting join-master-lobby...');
+
+    // Safeguard timeout to see if server acknowledges the request
+    const timeout = setTimeout(() => {
+      setDebugLog('Timeout: Server did not acknowledge join request.');
+    }, 5000);
+
     socket.emit('join-master-lobby', { 
       playerName: playerName.trim(), 
       emoji: selectedEmoji, 
       color: selectedColor 
     }, (response) => {
+      clearTimeout(timeout);
+      setDebugLog('Received response: ' + JSON.stringify(response));
+      
       if (response && response.success) {
         setJoined(true);
         setIsEditingName(false);
@@ -110,8 +132,13 @@ export default function PlayPage() {
             {joined ? 'Update your name or look for the evening' : 'Log in once, play all night!'}
           </p>
           
-          <form onSubmit={handleJoinOrUpdate} className="space-y-5">
+          <form onSubmit={handleJoinOrUpdate} className="space-y-4">
             {error && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-xl text-sm">{error}</div>}
+            
+            {/* ON-SCREEN DEBUGGER BOX */}
+            <div className="bg-amber-500/20 border border-amber-500 text-amber-200 p-3 rounded-xl text-xs font-mono break-all">
+              DEBUG: {debugLog || 'Waiting for socket connection...'}
+            </div>
             
             <div>
               <label className="block text-sm font-semibold text-zinc-300 mb-1">Your Nickname</label>
@@ -232,7 +259,7 @@ export default function PlayPage() {
       )}
 
       {/* FOOTER */}
-      <div className="text-center text-xs text-zinc-600 pt-4">
+      <div className="text-xs text-zinc-600 pt-4 text-center">
         Live Party System • No Room Code Needed
       </div>
 
