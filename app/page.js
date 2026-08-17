@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { socket } from '@/lib/socket';
 
 export default function MasterHostDashboard() {
-  const [view, setView] = useState('library'); // 'library', 'lobby', 'question', 'results', 'game-over', 'builder'
+  const [view, setView] = useState('library'); // 'library', 'lobby', 'question', 'answer-reveal', 'results', 'winner-reveal', 'game-over', 'builder'
   
   // Library State
   const [games, setGames] = useState([]);
@@ -12,14 +12,15 @@ export default function MasterHostDashboard() {
 
   // Master Party & Game State
   const [players, setPlayers] = useState([]);
-  const [activeGameId, setActiveGameId] = useState(null);
-  const [totalQuestions, setTotalQuestions] = useState(0);
   
   // Question & Timer State
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [timeLeft, setTimeLeft] = useState(15);
   const [answerStats, setAnswerStats] = useState({ totalAnswers: 0, totalPlayers: 0 });
+  const [answerBreakdown, setAnswerBreakdown] = useState(null);
   const [roundResults, setRoundResults] = useState(null);
+  const [winnerReveal, setWinnerReveal] = useState(null);
+  const [showWinnerName, setShowWinnerName] = useState(false);
   const [finalScores, setFinalScores] = useState([]);
 
   // Builder State
@@ -29,57 +30,7 @@ export default function MasterHostDashboard() {
     { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', timeLimit: 15 }
   ]);
 
-  useEffect(() => {
-    socket.emit('host-master-lobby');
-
-    socket.on('update-players', (data) => setPlayers(data.players));
-    socket.on('game-loaded', (data) => {
-      setTotalQuestions(data.totalQuestions);
-      setPlayers(data.players);
-      setView('lobby');
-    });
-    socket.on('next-question', (qData) => {
-      setView('question');
-      setCurrentQuestion(qData);
-      setTimeLeft(qData.timeLimit || 15);
-      setAnswerStats({ totalAnswers: 0, totalPlayers: players.length });
-      setRoundResults(null);
-    });
-    socket.on('player-answered-update', (stats) => setAnswerStats(stats));
-    socket.on('round-results', (results) => {
-      setView('results');
-      setRoundResults(results);
-      setPlayers(results.players);
-    });
-    socket.on('game-over', (data) => {
-      setView('game-over');
-      setFinalScores(data.players);
-    });
-
-    fetchGames();
-
-    return () => {
-      socket.off('host-master-lobby');
-      socket.off('update-players');
-      socket.off('game-loaded');
-      socket.off('next-question');
-      socket.off('player-answered-update');
-      socket.off('round-results');
-      socket.off('game-over');
-    };
-  }, [players.length]);
-
-  useEffect(() => {
-    if (view === 'question' && timeLeft > 0) {
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [view, timeLeft]);
-
   const fetchGames = async () => {
-    setLoading(true);
     try {
       const res = await fetch('/api/games');
       const data = await res.json();
@@ -91,12 +42,99 @@ export default function MasterHostDashboard() {
     }
   };
 
+  useEffect(() => {
+    socket.emit('host-master-lobby');
+
+    socket.on('update-players', (data) => setPlayers(data.players));
+    socket.on('game-loaded', (data) => {
+      setPlayers(data.players);
+      setView('lobby');
+    });
+    socket.on('next-question', (qData) => {
+      setView('question');
+      setCurrentQuestion(qData);
+      setTimeLeft(qData.timeLimit || 15);
+      setAnswerStats({ totalAnswers: 0, totalPlayers: players.length });
+      setAnswerBreakdown(null);
+      setRoundResults(null);
+      setWinnerReveal(null);
+      setShowWinnerName(false);
+    });
+    socket.on('player-answered-update', (stats) => setAnswerStats(stats));
+    socket.on('answer-breakdown', (data) => {
+      setView('answer-reveal');
+      setAnswerBreakdown(data);
+    });
+    socket.on('round-results', (results) => {
+      setView('results');
+      setRoundResults(results);
+      setPlayers(results.players);
+    });
+    socket.on('winner-reveal', (data) => {
+      setView('winner-reveal');
+      setWinnerReveal(data);
+      setShowWinnerName(false);
+    });
+    socket.on('game-over', (data) => {
+      setView('game-over');
+      setFinalScores(data.players);
+    });
+
+    return () => {
+      socket.off('host-master-lobby');
+      socket.off('update-players');
+      socket.off('game-loaded');
+      socket.off('next-question');
+      socket.off('player-answered-update');
+      socket.off('answer-breakdown');
+      socket.off('round-results');
+      socket.off('winner-reveal');
+      socket.off('game-over');
+    };
+  }, [players.length]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch('/api/games')
+      .then(async (res) => ({ res, data: await res.json() }))
+      .then(({ res, data }) => {
+        if (res.ok && !cancelled) setGames(data.games);
+      })
+      .catch((err) => console.error("Failed to load games", err))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (view === 'question' && timeLeft > 0) {
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [view, timeLeft]);
+
+  useEffect(() => {
+    if (view !== 'winner-reveal') return;
+    const timer = setTimeout(() => setShowWinnerName(true), 3000);
+    return () => clearTimeout(timer);
+  }, [view, winnerReveal]);
+
   const loadGame = (gameId) => {
-    setActiveGameId(gameId);
     socket.emit('load-game', { gameId });
   };
 
   const startGame = () => socket.emit('start-game');
+  const revealAnswers = () => socket.emit('reveal-answers');
+  const showScores = () => socket.emit('show-scores');
+  const revealWinner = () => socket.emit('reveal-winner');
+  const showFinalScores = () => socket.emit('show-final-scores');
   const nextQuestion = () => socket.emit('next-question-btn');
 
   // Delete a game
@@ -105,6 +143,7 @@ export default function MasterHostDashboard() {
     try {
       const res = await fetch(`/api/games?id=${gameId}`, { method: 'DELETE' });
       if (res.ok) {
+        setLoading(true);
         fetchGames();
       } else {
         alert("Failed to delete game.");
@@ -181,6 +220,7 @@ export default function MasterHostDashboard() {
         setEditingGameId(null);
         setGameTitle('');
         setQuestions([{ questionText: '', options: ['', '', '', ''], correctAnswer: 'A', timeLimit: 15 }]);
+        setLoading(true);
         fetchGames();
         setView('library');
       } else {
@@ -354,11 +394,17 @@ export default function MasterHostDashboard() {
         {/* VIEW 3: QUESTION BOARD WITH TIMER */}
         {view === 'question' && currentQuestion && (
           <div className="text-center">
+            {currentQuestion.isLastQuestion && (
+              <div className="mb-6 bg-amber-950/80 border border-amber-500 text-amber-200 px-5 py-3 rounded-2xl font-bold">
+                Final question of this game
+              </div>
+            )}
+
             <div className="flex justify-between items-center mb-6">
               <p className="text-zinc-400 font-bold">Question {currentQuestion.questionNumber} of {currentQuestion.totalQuestions}</p>
               
-              <div className={`px-6 py-2 rounded-full font-black text-xl border flex items-center gap-2 ${timeLeft <= 5 ? 'bg-red-950/80 text-red-400 border-red-600 animate-pulse' : 'bg-zinc-900 text-purple-300 border-zinc-700'}`}>
-                ⏱️ {timeLeft}s
+              <div className={`px-6 py-2 rounded-full font-black text-xl border flex items-center gap-2 ${timeLeft <= 0 ? 'bg-red-950/80 text-red-400 border-red-600' : timeLeft <= 5 ? 'bg-red-950/80 text-red-400 border-red-600 animate-pulse' : 'bg-zinc-900 text-purple-300 border-zinc-700'}`}>
+                {timeLeft <= 0 ? 'TIME UP' : `⏱️ ${timeLeft}s`}
               </div>
 
               <div className="bg-purple-900/50 border border-purple-700 text-purple-200 px-4 py-1.5 rounded-full font-bold text-sm">
@@ -370,7 +416,7 @@ export default function MasterHostDashboard() {
               {currentQuestion.questionText}
             </h1>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
               {currentQuestion.options.map((opt, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const optColors = { A: 'bg-red-600', B: 'bg-blue-600', C: 'bg-yellow-600', D: 'bg-green-600' };
@@ -383,12 +429,99 @@ export default function MasterHostDashboard() {
                 );
               })}
             </div>
+
+            {answerStats.totalPlayers > 0 && answerStats.totalAnswers === answerStats.totalPlayers && timeLeft > 0 && (
+              <p className="text-emerald-400 font-semibold mb-4">Everyone has locked in — the timer keeps running until you reveal.</p>
+            )}
+
+            <button
+              onClick={revealAnswers}
+              className={`font-extrabold text-xl px-8 py-4 rounded-2xl shadow-2xl transition ${timeLeft <= 0 ? 'bg-purple-600 hover:bg-purple-500 text-white animate-pulse' : 'bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-white'}`}
+            >
+              {timeLeft <= 0 ? 'Reveal How Everyone Answered' : 'End Question Early & Reveal Answers'}
+            </button>
+          </div>
+        )}
+
+        {/* VIEW 3b: ANSWER DISTRIBUTION */}
+        {view === 'answer-reveal' && answerBreakdown && (
+          <div>
+            {answerBreakdown.isLastQuestion && (
+              <div className="mb-6 bg-amber-950/80 border border-amber-500 text-amber-200 px-5 py-3 rounded-2xl font-bold text-center">
+                That was the final question
+              </div>
+            )}
+
+            <div className="flex justify-between items-center mb-4">
+              <p className="text-zinc-400 font-bold">Question {answerBreakdown.questionNumber} of {answerBreakdown.totalQuestions}</p>
+              <p className="text-zinc-400 font-mono text-sm">
+                {answerBreakdown.totalAnswers} / {answerBreakdown.totalPlayers} answered
+              </p>
+            </div>
+
+            <h2 className="text-2xl font-black text-white mb-2">{answerBreakdown.questionText}</h2>
+            <p className="text-purple-300 font-semibold mb-6">How the room voted</p>
+
+            <div className="space-y-3 mb-8">
+              {answerBreakdown.options.map((optText, idx) => {
+                const optLetter = ['A', 'B', 'C', 'D'][idx];
+                const count = answerBreakdown.counts[optLetter] || 0;
+                const pct = answerBreakdown.totalAnswers === 0 ? 0 : Math.round((count / answerBreakdown.totalAnswers) * 100);
+                const isCorrect = answerBreakdown.correctAnswer === optLetter;
+                const barColors = { A: 'bg-red-600', B: 'bg-blue-600', C: 'bg-yellow-600', D: 'bg-green-600' };
+
+                return (
+                  <div
+                    key={idx}
+                    className={`bg-zinc-900 border p-4 rounded-2xl ${isCorrect ? 'border-emerald-400' : 'border-zinc-800'}`}
+                  >
+                    <div className="flex justify-between items-center mb-2 gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`${barColors[optLetter]} w-10 h-10 rounded-xl flex items-center justify-center font-black shrink-0`}>
+                          {optLetter}
+                        </span>
+                        <span className="font-bold text-white truncate">{optText}</span>
+                        {isCorrect && <span className="text-xs font-bold uppercase text-emerald-400 shrink-0">Correct</span>}
+                      </div>
+                      <span className="font-mono font-black text-white shrink-0">{count} ({pct}%)</span>
+                    </div>
+                    <div className="h-3 bg-zinc-950 rounded-full overflow-hidden">
+                      <div
+                        className={`${barColors[optLetter]} h-full rounded-full transition-all duration-700`}
+                        style={{ width: `${Math.max(pct, count > 0 ? 4 : 0)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="text-center">
+              {answerBreakdown.isLastQuestion ? (
+                <div>
+                  <p className="text-amber-300 font-semibold mb-4">Next screen is the winner reveal</p>
+                  <button onClick={revealWinner} className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-lg px-8 py-4 rounded-2xl shadow-xl transition">
+                    Reveal the Winner 🏆
+                  </button>
+                </div>
+              ) : (
+                <button onClick={showScores} className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-xl transition">
+                  Show Scoreboard
+                </button>
+              )}
+            </div>
           </div>
         )}
 
         {/* VIEW 4: ROUND RESULTS & LEADERBOARD */}
         {view === 'results' && roundResults && (
           <div className="max-w-2xl mx-auto text-center">
+            {roundResults.isFinalQuestionNext && (
+              <div className="mb-6 bg-amber-950/80 border border-amber-500 text-amber-200 px-5 py-3 rounded-2xl font-bold">
+                Next up is the final question of this game
+              </div>
+            )}
+
             <h1 className="text-3xl font-extrabold text-purple-400 mb-2">Round Results</h1>
             <p className="text-zinc-400 mb-6">Correct Answer was: <span className="text-emerald-400 font-bold text-2xl">[{roundResults.correctAnswer}]</span></p>
 
@@ -408,17 +541,50 @@ export default function MasterHostDashboard() {
               ))}
             </div>
 
-            <button onClick={nextQuestion} className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-xl transition">
-              Next Question ➡️
-            </button>
+            {roundResults.isFinalQuestionNext ? (
+              <button onClick={nextQuestion} className="bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-lg px-8 py-4 rounded-2xl shadow-xl transition">
+                Start Final Question ➡️
+              </button>
+            ) : (
+              <button onClick={nextQuestion} className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-xl transition">
+                Next Question ➡️
+              </button>
+            )}
           </div>
         )}
 
-        {/* VIEW 5: GAME OVER & PODIUM */}
+        {/* VIEW 5a: STAGGERED WINNER REVEAL */}
+        {view === 'winner-reveal' && winnerReveal && (
+          <div className="max-w-3xl mx-auto text-center py-8">
+            <p className="text-2xl md:text-3xl font-bold text-zinc-400 mb-10 tracking-wide">The winner is...</p>
+            <div className="min-h-48 flex flex-col items-center justify-center mb-12">
+              {showWinnerName && winnerReveal.winners.length > 0 ? (
+                <div className="space-y-6">
+                  {winnerReveal.winners.map((w) => (
+                    <div key={w.id} className="flex flex-col items-center gap-3">
+                      <span className="text-7xl">{w.emoji}</span>
+                      <h1 className="text-5xl md:text-7xl font-black text-white tracking-tight">{w.name}</h1>
+                      <p className="font-mono text-2xl font-bold text-emerald-400">{w.score} pts</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-16 w-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+              )}
+            </div>
+            {showWinnerName && (
+              <button onClick={showFinalScores} className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-xl transition">
+                Show Final Scoreboard
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* VIEW 5: FINAL STANDINGS */}
         {view === 'game-over' && (
           <div className="max-w-2xl mx-auto text-center">
-            <h1 className="text-4xl font-black text-purple-400 mb-2">Game Over! 🏆</h1>
-            <p className="text-zinc-400 mb-8">Stand-alone game winner crowned!</p>
+            <h1 className="text-4xl font-black text-purple-400 mb-2">Final Standings</h1>
+            <p className="text-zinc-400 mb-8">How everyone finished this game</p>
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl space-y-3 mb-8">
               {finalScores.map((p, idx) => (

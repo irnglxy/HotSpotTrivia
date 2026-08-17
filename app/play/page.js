@@ -19,39 +19,40 @@ export default function PlayPage() {
   const [joined, setJoined] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [error, setError] = useState('');
-  const [debugLog, setDebugLog] = useState(''); // <-- On-screen debugger state
   
   const [gameStarted, setGameStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [answered, setAnswered] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [isWinner, setIsWinner] = useState(false);
 
   useEffect(() => {
-    // Listen to socket connection events
-    socket.on('connect', () => {
-      setDebugLog('Socket Connected! ID: ' + socket.id);
-    });
-
-    socket.on('connect_error', (err) => {
-      setDebugLog('Connection Error: ' + err.message);
-    });
-
     socket.on('next-question', (qData) => {
       setGameStarted(true);
       setCurrentQuestion(qData);
       setAnswered(false);
       setSelectedAnswer(null);
+      setIsWinner(false);
+    });
+
+    socket.on('answer-breakdown', () => {
+      setAnswered(true);
+    });
+
+    socket.on('winner-reveal', (data) => {
+      setIsWinner(data.winners.some((winner) => winner.id === socket.id));
     });
 
     socket.on('game-over', () => {
       setGameStarted(false);
       setCurrentQuestion(null);
+      setIsWinner(false);
     });
 
     return () => {
-      socket.off('connect');
-      socket.off('connect_error');
       socket.off('next-question');
+      socket.off('answer-breakdown');
+      socket.off('winner-reveal');
       socket.off('game-over');
     };
   }, []);
@@ -63,21 +64,11 @@ export default function PlayPage() {
       return;
     }
 
-    setDebugLog('Emitting join-master-lobby...');
-
-    // Safeguard timeout to see if server acknowledges the request
-    const timeout = setTimeout(() => {
-      setDebugLog('Timeout: Server did not acknowledge join request.');
-    }, 5000);
-
     socket.emit('join-master-lobby', { 
       playerName: playerName.trim(), 
       emoji: selectedEmoji, 
       color: selectedColor 
     }, (response) => {
-      clearTimeout(timeout);
-      setDebugLog('Received response: ' + JSON.stringify(response));
-      
       if (response && response.success) {
         setJoined(true);
         setIsEditingName(false);
@@ -134,11 +125,6 @@ export default function PlayPage() {
           
           <form onSubmit={handleJoinOrUpdate} className="space-y-4">
             {error && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-xl text-sm">{error}</div>}
-            
-            {/* ON-SCREEN DEBUGGER BOX */}
-            <div className="bg-amber-500/20 border border-amber-500 text-amber-200 p-3 rounded-xl text-xs font-mono break-all">
-              DEBUG: {debugLog || 'Waiting for socket connection...'}
-            </div>
             
             <div>
               <label className="block text-sm font-semibold text-zinc-300 mb-1">Your Nickname</label>
@@ -207,19 +193,26 @@ export default function PlayPage() {
       )}
 
       {/* 2. WAITING LOBBY SCREEN */}
-      {joined && !isEditingName && !gameStarted && (
+      {joined && !isEditingName && !gameStarted && !isWinner && (
         <div className="text-center my-auto p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl mx-auto max-w-md w-full">
           <div className="w-20 h-20 bg-emerald-500/20 border border-emerald-500 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-pulse">
             ✓
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">You're in the Party!</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">You&apos;re in the Party!</h2>
           <p className="text-zinc-400 text-sm">Sit tight! The host will launch the next game from the main screen shortly.</p>
         </div>
       )}
 
-      {/* 3. MOBILE OPTIMIZED ANSWER BUTTONS */}
-      {joined && !isEditingName && gameStarted && currentQuestion && (
+      {/* 3. QUESTION + ANSWER BUTTONS */}
+      {joined && !isEditingName && gameStarted && currentQuestion && !isWinner && (
         <div className="w-full max-w-md mx-auto my-auto flex flex-col justify-center">
+          <p className="text-center text-xs uppercase tracking-widest text-zinc-500 font-semibold mb-2">
+            Question {currentQuestion.questionNumber} of {currentQuestion.totalQuestions}
+          </p>
+          <h2 className="text-xl font-black text-white text-center leading-snug mb-5 px-1">
+            {currentQuestion.questionText}
+          </h2>
+
           {!answered ? (
             <div className="space-y-3">
               <p className="text-center text-zinc-400 font-semibold mb-2">Tap your choice:</p>
@@ -251,10 +244,20 @@ export default function PlayPage() {
               <div className="w-20 h-20 bg-purple-600/20 border border-purple-500 text-purple-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-bounce">
                 {selectedAnswer}
               </div>
-              <h2 className="text-2xl font-bold text-white mb-2">Locked In!</h2>
+              <h2 className="text-2xl font-bold text-white mb-2">{selectedAnswer ? 'Locked In!' : 'Time is up'}</h2>
               <p className="text-zinc-400">Watch the main host screen for the round results.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* 4. WINNER CELEBRATION */}
+      {joined && !isEditingName && isWinner && (
+        <div className="w-full max-w-md mx-auto my-auto text-center bg-gradient-to-b from-amber-500/20 to-zinc-900 border border-amber-400/60 rounded-3xl p-10 shadow-2xl shadow-amber-500/20">
+          <div className="text-8xl mb-6 animate-bounce">🏆</div>
+          <p className="text-sm uppercase tracking-[0.3em] text-amber-300 font-bold mb-3">You did it</p>
+          <h2 className="text-5xl font-black text-white mb-4">Winner!</h2>
+          <p className="text-zinc-300 text-lg">You won this game. Celebrate!</p>
         </div>
       )}
 

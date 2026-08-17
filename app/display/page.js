@@ -5,10 +5,13 @@ import { socket } from '@/lib/socket';
 
 export default function DisplayScreen() {
   const [players, setPlayers] = useState([]);
-  const [status, setStatus] = useState('lobby'); // 'lobby', 'playing', 'results', 'game-over'
+  const [status, setStatus] = useState('lobby'); // 'lobby', 'playing', 'answer-reveal', 'results', 'winner-reveal', 'game-over'
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [timeLeft, setTimeLeft] = useState(15);
+  const [answerBreakdown, setAnswerBreakdown] = useState(null);
   const [roundResults, setRoundResults] = useState(null);
+  const [winnerReveal, setWinnerReveal] = useState(null);
+  const [showWinnerName, setShowWinnerName] = useState(false);
   const [finalScores, setFinalScores] = useState([]);
 
   useEffect(() => {
@@ -33,13 +36,27 @@ export default function DisplayScreen() {
       setStatus('playing');
       setCurrentQuestion(qData);
       setTimeLeft(qData.timeLimit || 15);
+      setAnswerBreakdown(null);
       setRoundResults(null);
+      setWinnerReveal(null);
+      setShowWinnerName(false);
+    });
+
+    socket.on('answer-breakdown', (data) => {
+      setStatus('answer-reveal');
+      setAnswerBreakdown(data);
     });
 
     socket.on('round-results', (results) => {
       setStatus('results');
       setRoundResults(results);
       setPlayers(results.players);
+    });
+
+    socket.on('winner-reveal', (data) => {
+      setStatus('winner-reveal');
+      setWinnerReveal(data);
+      setShowWinnerName(false);
     });
 
     socket.on('game-over', (data) => {
@@ -53,7 +70,9 @@ export default function DisplayScreen() {
       socket.off('update-players');
       socket.off('game-loaded');
       socket.off('next-question');
+      socket.off('answer-breakdown');
       socket.off('round-results');
+      socket.off('winner-reveal');
       socket.off('game-over');
     };
   }, []);
@@ -67,6 +86,12 @@ export default function DisplayScreen() {
       return () => clearInterval(timer);
     }
   }, [status, timeLeft]);
+
+  useEffect(() => {
+    if (status !== 'winner-reveal') return;
+    const timer = setTimeout(() => setShowWinnerName(true), 3000);
+    return () => clearTimeout(timer);
+  }, [status, winnerReveal]);
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white flex flex-col items-center justify-between p-8 md:p-16 select-none overflow-hidden">
@@ -132,8 +157,8 @@ export default function DisplayScreen() {
               </span>
               
               {/* Massive Cinematic Timer */}
-              <div className={`px-8 py-3 rounded-2xl font-black text-3xl border flex items-center gap-3 shadow-2xl ${timeLeft <= 5 ? 'bg-red-950 text-red-400 border-red-600 animate-pulse scale-105' : 'bg-zinc-900 text-purple-300 border-zinc-700'}`}>
-                ⏱️ {timeLeft}s
+              <div className={`px-8 py-3 rounded-2xl font-black text-3xl border flex items-center gap-3 shadow-2xl ${timeLeft <= 0 ? 'bg-red-950 text-red-400 border-red-600' : timeLeft <= 5 ? 'bg-red-950 text-red-400 border-red-600 animate-pulse scale-105' : 'bg-zinc-900 text-purple-300 border-zinc-700'}`}>
+                {timeLeft <= 0 ? 'TIME UP' : `⏱️ ${timeLeft}s`}
               </div>
             </div>
 
@@ -168,7 +193,73 @@ export default function DisplayScreen() {
           </div>
         )}
 
-        {/* STATE 3: ROUND RESULTS & LEADERBOARD */}
+        {/* STATE 3: HOW THE ROOM ANSWERED */}
+        {status === 'answer-reveal' && answerBreakdown && (
+          <div className="w-full space-y-8">
+            <div className="flex justify-between items-center">
+              <span className="text-zinc-400 font-bold text-xl uppercase tracking-widest">
+                Question {answerBreakdown.questionNumber} of {answerBreakdown.totalQuestions}
+              </span>
+              <span className="text-zinc-400 font-mono text-lg">
+                {answerBreakdown.totalAnswers} / {answerBreakdown.totalPlayers} answered
+              </span>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl text-center">
+              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-3">How the room voted</p>
+              <h2 className="text-3xl md:text-4xl font-black text-white leading-tight">
+                {answerBreakdown.questionText}
+              </h2>
+            </div>
+
+            <div className="space-y-4">
+              {answerBreakdown.options.map((optText, idx) => {
+                const optLetter = ['A', 'B', 'C', 'D'][idx];
+                const count = answerBreakdown.counts[optLetter] || 0;
+                const pct = answerBreakdown.totalAnswers === 0 ? 0 : Math.round((count / answerBreakdown.totalAnswers) * 100);
+                const isCorrect = answerBreakdown.correctAnswer === optLetter;
+                const barColors = {
+                  A: 'bg-red-600',
+                  B: 'bg-blue-600',
+                  C: 'bg-yellow-600',
+                  D: 'bg-green-600'
+                };
+
+                return (
+                  <div
+                    key={idx}
+                    className={`bg-zinc-900 border p-5 rounded-3xl ${isCorrect ? 'border-emerald-400 shadow-lg shadow-emerald-500/10' : 'border-zinc-800'}`}
+                  >
+                    <div className="flex justify-between items-center mb-3 gap-4">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <span className={`${barColors[optLetter]} w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shrink-0`}>
+                          {optLetter}
+                        </span>
+                        <span className="text-2xl font-bold text-white truncate">{optText}</span>
+                        {isCorrect && (
+                          <span className="shrink-0 text-sm font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950 border border-emerald-700 px-3 py-1 rounded-full">
+                            Correct
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono text-2xl font-black text-white shrink-0">
+                        {count} <span className="text-zinc-500 text-lg font-bold">({pct}%)</span>
+                      </span>
+                    </div>
+                    <div className="h-4 bg-zinc-950 rounded-full overflow-hidden">
+                      <div
+                        className={`${barColors[optLetter]} h-full rounded-full transition-all duration-700`}
+                        style={{ width: `${Math.max(pct, count > 0 ? 4 : 0)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* STATE 4: ROUND RESULTS & LEADERBOARD */}
         {status === 'results' && roundResults && (
           <div className="max-w-3xl mx-auto text-center space-y-8">
             <div className="space-y-2">
@@ -194,12 +285,34 @@ export default function DisplayScreen() {
           </div>
         )}
 
-        {/* STATE 4: FINAL GAME OVER PODIUM */}
+        {/* STATE 5: STAGGERED WINNER REVEAL */}
+        {status === 'winner-reveal' && winnerReveal && (
+          <div className="text-center space-y-10 py-8">
+            <p className="text-4xl md:text-5xl font-bold text-zinc-400 tracking-wide">The winner is...</p>
+            <div className="min-h-64 flex flex-col items-center justify-center">
+              {showWinnerName && winnerReveal.winners.length > 0 ? (
+                <div className="space-y-8">
+                  {winnerReveal.winners.map((w) => (
+                    <div key={w.id} className="flex flex-col items-center gap-4">
+                      <span className="text-8xl">{w.emoji}</span>
+                      <h2 className="text-6xl md:text-8xl font-black text-white tracking-tight">{w.name}</h2>
+                      <p className="font-mono text-3xl font-black text-emerald-400">{w.score} pts</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="h-20 w-20 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* STATE 6: FINAL STANDINGS */}
         {status === 'game-over' && (
           <div className="max-w-3xl mx-auto text-center space-y-8">
             <div className="space-y-2">
-              <h2 className="text-6xl font-black text-purple-400 animate-bounce">Winner Crowned! 🏆</h2>
-              <p className="text-zinc-400 text-xl">Final Standings for this Game</p>
+              <h2 className="text-5xl font-black text-purple-400">Final Standings</h2>
+              <p className="text-zinc-400 text-xl">How everyone finished this game</p>
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-4">

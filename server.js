@@ -29,7 +29,9 @@ app.prepare().then(() => {
     questions: [],
     currentQuestionIndex: 0,
     questionStartTime: null,
-    answersThisRound: {}
+    answersThisRound: {},
+    lastBreakdown: null,
+    lastWinner: null
   };
 
   io.on('connection', (socket) => {
@@ -45,12 +47,17 @@ app.prepare().then(() => {
       });
       if (partyState.status === 'playing' && partyState.questions.length > 0) {
         const q = partyState.questions[partyState.currentQuestionIndex];
-        socket.emit('next-question', {
-          questionNumber: partyState.currentQuestionIndex + 1,
-          totalQuestions: partyState.questions.length,
-          questionText: q.question_text,
-          options: [q.option_a, q.option_b, q.option_c, q.option_d],
-          timeLimit: q.time_limit || 15
+        socket.emit('next-question', buildQuestionPayload(partyState, q));
+      } else if (partyState.status === 'answer-reveal' && partyState.lastBreakdown) {
+        socket.emit('answer-breakdown', partyState.lastBreakdown);
+      } else if (partyState.status === 'results' && partyState.questions.length > 0) {
+        const q = partyState.questions[partyState.currentQuestionIndex];
+        socket.emit('round-results', buildRoundResultsPayload(partyState, q));
+      } else if (partyState.status === 'winner-reveal' && partyState.lastWinner) {
+        socket.emit('winner-reveal', partyState.lastWinner);
+      } else if (partyState.status === 'game-over') {
+        socket.emit('game-over', {
+          players: [...partyState.players].sort((a, b) => b.score - a.score)
         });
       }
       console.log(`Big Screen Display connected: ${socket.id}`);
@@ -120,6 +127,26 @@ app.prepare().then(() => {
       sendNextQuestion(io, partyState);
     });
 
+    // Host ends the question (timer may still be running) and shows answer distribution
+    socket.on('reveal-answers', () => {
+      revealAnswers(io, partyState);
+    });
+
+    // Host moves from answer chart to the round leaderboard (non-final questions)
+    socket.on('show-scores', () => {
+      showScores(io, partyState);
+    });
+
+    // After the last question's vote chart, host starts the winner reveal
+    socket.on('reveal-winner', () => {
+      revealWinner(io, partyState);
+    });
+
+    // After the winner is shown, host opens the full standings
+    socket.on('show-final-scores', () => {
+      showFinalScores(io, partyState);
+    });
+
     // Host clicks "Next Question"
     socket.on('next-question-btn', () => {
       partyState.currentQuestionIndex++;
@@ -127,11 +154,6 @@ app.prepare().then(() => {
       if (partyState.currentQuestionIndex < partyState.questions.length) {
         partyState.status = 'playing';
         sendNextQuestion(io, partyState);
-      } else {
-        partyState.status = 'game-over';
-        io.to(MASTER_ROOM).emit('game-over', {
-          players: [...partyState.players].sort((a, b) => b.score - a.score)
-        });
       }
     });
 
@@ -142,7 +164,7 @@ app.prepare().then(() => {
 
       const q = partyState.questions[partyState.currentQuestionIndex];
       const timeTaken = (Date.now() - partyState.questionStartTime) / 1000;
-      const timeLimit = q.time_limit || 15;
+      const timeLimit = q.time_limit || 30;
 
       const isCorrect = answer === q.correct_answer;
       let pointsEarned = 0;
@@ -159,17 +181,12 @@ app.prepare().then(() => {
         player.score += pointsEarned;
       }
 
-      // Notify host how many answered
+      // Notify host how many answered (round stays open until the host reveals)
       if (partyState.hostId) {
         io.to(partyState.hostId).emit('player-answered-update', {
           totalAnswers: Object.keys(partyState.answersThisRound).length,
           totalPlayers: partyState.players.length
         });
-      }
-
-      // If everyone answered, end round early
-      if (Object.keys(partyState.answersThisRound).length === partyState.players.length) {
-        endRound(io, partyState);
       }
     });
 
@@ -185,37 +202,92 @@ app.prepare().then(() => {
   });
 });
 
-function sendNextQuestion(io, partyState) {
-  const q = partyState.questions[partyState.currentQuestionIndex];
-  
-  partyState.questionStartTime = Date.now();
-  partyState.answersThisRound = {};
-
-  io.to("PARTY").emit('next-question', {
+function buildQuestionPayload(partyState, q) {
+  return {
     questionNumber: partyState.currentQuestionIndex + 1,
     totalQuestions: partyState.questions.length,
     questionText: q.question_text,
     options: [q.option_a, q.option_b, q.option_c, q.option_d],
-    timeLimit: q.time_limit || 15
-  });
-
-  // Timer loop for timeout
-  const timeLimitMs = (q.time_limit || 15) * 1000;
-  setTimeout(() => {
-    if (partyState.status === 'playing' && partyState.currentQuestionIndex === partyState.questions.indexOf(q)) {
-      endRound(io, partyState);
-    }
-  }, timeLimitMs);
+    timeLimit: q.time_limit || 15,
+    isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+  };
 }
 
-function endRound(io, partyState) {
-  if (partyState.status !== 'playing') return;
-  partyState.status = 'round-over';
-
+function sendNextQuestion(io, partyState) {
   const q = partyState.questions[partyState.currentQuestionIndex];
 
-  io.to("PARTY").emit('round-results', {
+  partyState.questionStartTime = Date.now();
+  partyState.answersThisRound = {};
+  partyState.lastBreakdown = null;
+  partyState.lastWinner = null;
+
+  io.to("PARTY").emit('next-question', buildQuestionPayload(partyState, q));
+}
+
+function revealAnswers(io, partyState) {
+  if (partyState.status !== 'playing') return;
+  partyState.status = 'answer-reveal';
+
+  const q = partyState.questions[partyState.currentQuestionIndex];
+  const counts = { A: 0, B: 0, C: 0, D: 0 };
+  Object.values(partyState.answersThisRound).forEach((entry) => {
+    if (counts[entry.answer] !== undefined) counts[entry.answer]++;
+  });
+
+  const payload = {
+    questionText: q.question_text,
+    options: [q.option_a, q.option_b, q.option_c, q.option_d],
+    counts,
+    totalAnswers: Object.keys(partyState.answersThisRound).length,
+    totalPlayers: partyState.players.length,
     correctAnswer: q.correct_answer,
-    players: partyState.players
+    questionNumber: partyState.currentQuestionIndex + 1,
+    totalQuestions: partyState.questions.length,
+    isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+  };
+
+  partyState.lastBreakdown = payload;
+  io.to("PARTY").emit('answer-breakdown', payload);
+}
+
+function buildRoundResultsPayload(partyState, q) {
+  const isLastQuestion = partyState.currentQuestionIndex === partyState.questions.length - 1;
+  return {
+    correctAnswer: q.correct_answer,
+    players: partyState.players,
+    isLastQuestion,
+    isFinalQuestionNext: !isLastQuestion && (partyState.currentQuestionIndex + 1 === partyState.questions.length - 1),
+    nextQuestionNumber: partyState.currentQuestionIndex + 2,
+    totalQuestions: partyState.questions.length
+  };
+}
+
+function showScores(io, partyState) {
+  if (partyState.status !== 'answer-reveal') return;
+  partyState.status = 'results';
+
+  const q = partyState.questions[partyState.currentQuestionIndex];
+  io.to("PARTY").emit('round-results', buildRoundResultsPayload(partyState, q));
+}
+
+function buildWinnerPayload(partyState) {
+  const ranked = [...partyState.players].sort((a, b) => b.score - a.score);
+  const topScore = ranked[0] ? ranked[0].score : 0;
+  const winners = ranked.filter((p) => p.score === topScore && ranked.length > 0);
+  return { winners, players: ranked };
+}
+
+function revealWinner(io, partyState) {
+  if (partyState.status !== 'answer-reveal') return;
+  partyState.status = 'winner-reveal';
+  partyState.lastWinner = buildWinnerPayload(partyState);
+  io.to("PARTY").emit('winner-reveal', partyState.lastWinner);
+}
+
+function showFinalScores(io, partyState) {
+  if (partyState.status !== 'winner-reveal') return;
+  partyState.status = 'game-over';
+  io.to("PARTY").emit('game-over', {
+    players: [...partyState.players].sort((a, b) => b.score - a.score)
   });
 }
