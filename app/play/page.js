@@ -147,6 +147,8 @@ export default function PlayPage() {
     socket.emit('submit-answer', { answer: optionLetter });
   };
 
+  const isShotInTheDark = currentQuestion?.gameType === 'shot-in-the-dark' || (Number.isFinite(currentQuestion?.answerMin) && Number.isFinite(currentQuestion?.answerMax));
+
   const adjustGuess = (amount) => {
     setGuessValue((current) => Math.min(currentQuestion.answerMax, Math.max(currentQuestion.answerMin, Number((current + amount).toFixed(8)))));
   };
@@ -278,14 +280,13 @@ export default function PlayPage() {
             {currentQuestion.questionText}
           </h2>
 
-          {!answered && currentQuestion.gameType === 'shot-in-the-dark' ? (
+          {!answered && isShotInTheDark ? (
             <div className="space-y-6 text-center">
               <p className="text-zinc-400 font-semibold">Move the slider to make your best estimate:</p>
-              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6">
-                <p className="text-5xl font-black text-white mb-6">{guessValue}</p>
-                <input type="range" min={currentQuestion.answerMin} max={currentQuestion.answerMax} step={currentQuestion.answerStep} value={guessValue ?? currentQuestion.answerMin} onChange={(e) => setGuessValue(Number(e.target.value))} className="w-full accent-purple-500" />
-                <div className="flex justify-between text-xs text-zinc-500 mt-2"><span>{currentQuestion.answerMin}</span><span>{currentQuestion.answerMax}</span></div>
-                <div className="flex gap-3 mt-6"><button onClick={() => adjustGuess(-currentQuestion.answerStep)} className="flex-1 bg-zinc-800 p-3 rounded-xl font-black text-2xl">−</button><button onClick={() => adjustGuess(currentQuestion.answerStep)} className="flex-1 bg-zinc-800 p-3 rounded-xl font-black text-2xl">+</button></div>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 flex items-center justify-center gap-6">
+                <div className="text-xs text-zinc-500 h-56 flex flex-col justify-between"><span>{currentQuestion.answerMax}</span><span>{currentQuestion.answerMin}</span></div>
+                <input type="range" min={currentQuestion.answerMin} max={currentQuestion.answerMax} step={currentQuestion.answerStep} value={guessValue ?? currentQuestion.answerMin} onChange={(e) => setGuessValue(Number(e.target.value))} className="h-56 w-8 accent-purple-500 [writing-mode:vertical-lr] [direction:rtl]" />
+                <div className="flex flex-col gap-3"><button onClick={() => adjustGuess(currentQuestion.answerStep)} className="bg-zinc-800 w-14 h-14 rounded-xl font-black text-3xl">+</button><p className="text-4xl font-black text-white w-28">{guessValue}</p><button onClick={() => adjustGuess(-currentQuestion.answerStep)} className="bg-zinc-800 w-14 h-14 rounded-xl font-black text-3xl">−</button></div>
               </div>
               <button onClick={() => handleAnswerClick(guessValue)} className="w-full bg-purple-600 hover:bg-purple-500 p-4 rounded-2xl font-black text-lg">Lock In {guessValue}</button>
             </div>
