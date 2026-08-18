@@ -16,6 +16,7 @@ export default function MasterHostDashboard() {
 
   // Master Party & Game State
   const [players, setPlayers] = useState([]);
+  const [signupsOpen, setSignupsOpen] = useState(true);
   
   // Question & Timer State
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -50,6 +51,7 @@ export default function MasterHostDashboard() {
     socket.emit('host-master-lobby');
 
     socket.on('update-players', (data) => setPlayers(data.players));
+    socket.on('master-update', (data) => setSignupsOpen(data.signupsOpen !== false));
     socket.on('game-loaded', (data) => {
       setPlayers(data.players);
       setView('lobby');
@@ -92,6 +94,7 @@ export default function MasterHostDashboard() {
 
     return () => {
       socket.off('host-master-lobby');
+      socket.off('master-update');
       socket.off('update-players');
       socket.off('game-loaded');
       socket.off('next-question');
@@ -149,6 +152,7 @@ export default function MasterHostDashboard() {
   const showFinalScores = () => socket.emit('show-final-scores');
   const endGame = () => socket.emit('end-game');
   const nextQuestion = () => socket.emit('next-question-btn');
+  const setSignupsOpenForNight = (open) => socket.emit('set-signups-open', { open }, (response) => { if (response?.success) setSignupsOpen(response.signupsOpen); });
   const scoreShotInTheDark = () => socket.emit('score-shot-in-the-dark', { correctNumber }, (response) => {
     if (!response?.success) {
       alert(response?.error || 'Enter a valid number.');
@@ -285,6 +289,7 @@ export default function MasterHostDashboard() {
             <p className="text-zinc-400 text-sm">Players connect at <span className="text-white font-mono underline">/play</span></p>
           </div>
           <div className="flex gap-2">
+            <button onClick={() => setSignupsOpenForNight(!signupsOpen)} className={`px-4 py-2 rounded-xl font-semibold ${signupsOpen ? 'bg-red-950 text-red-300' : 'bg-emerald-700 text-white'}`}>{signupsOpen ? 'Close Room' : 'Open Room'}</button>
             <button 
               onClick={() => setView('library')}
               className={`px-4 py-2 rounded-xl font-semibold transition ${view === 'library' ? 'bg-purple-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:text-white'}`}

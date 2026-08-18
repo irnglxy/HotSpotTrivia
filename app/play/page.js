@@ -7,7 +7,7 @@ import { socket } from '@/lib/socket';
 const EMOJIS = [
   '🍒', '🌭', '🔥', '⭐', '🍕', '🦊', '⚡', '💀', '🤖', '👑',
   '🦄', '🐱', '🐶', '🐵', '👻', '👽', '💩', '🎉', '❤️', '🍩',
-  '🎸', '🏆', '💎', '🎯', '🥑', '🍔', '🚀', '🍆', '💦', '🐳'
+  '🎸', '🏆', '💎', '🍑', '🥑', '🍔', '🚀', '🍆', '💦', '🐳'
 ];
 const COLORS = ['#a855f7', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
 const PLAYER_STORAGE_KEY = 'hotspot-trivia-player';
@@ -23,6 +23,7 @@ export default function PlayPage() {
   const [joined, setJoined] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [error, setError] = useState('');
+  const [roomClosed, setRoomClosed] = useState(false);
   
   const [gameStarted, setGameStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(null);
@@ -72,6 +73,11 @@ export default function PlayPage() {
       setShowPodiumPlace(false);
     });
 
+    socket.on('room-closed', () => {
+      setJoined(false); setGameStarted(false); setCurrentQuestion(null); setRoomClosed(true);
+    });
+    socket.on('room-opened', () => setRoomClosed(false));
+
     return () => {
       socket.off('next-question');
       socket.off('answer-breakdown');
@@ -79,6 +85,7 @@ export default function PlayPage() {
       socket.off('winner-reveal');
       socket.off('game-over');
       socket.off('game-ended');
+      socket.off('room-closed'); socket.off('room-opened');
     };
   }, []);
 
@@ -189,6 +196,7 @@ export default function PlayPage() {
       {/* 1. INITIAL LOGIN SCREEN OR QUICK RENAME SCREEN */}
       {(!joined || isEditingName) && (
         <div className="max-w-md w-full mx-auto my-auto bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
+          {roomClosed && <div className="mb-5 text-center bg-red-950 border border-red-700 text-red-200 rounded-xl p-3 font-bold">This room is closed for the night.</div>}
           <h1 className="text-3xl font-extrabold text-purple-400 mb-2 text-center">
             {joined ? 'Edit Profile' : 'Party Controller'}
           </h1>

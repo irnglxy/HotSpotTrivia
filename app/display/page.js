@@ -72,6 +72,7 @@ export default function DisplayScreen() {
       setWinnerReveal(null);
       setFinalScores([]);
     });
+    socket.on('room-closed', () => { setStatus('lobby'); setPlayers([]); });
 
     return () => {
       socket.off('join-display-screen');
@@ -84,6 +85,7 @@ export default function DisplayScreen() {
       socket.off('winner-reveal');
       socket.off('game-over');
       socket.off('game-ended');
+      socket.off('room-closed');
     };
   }, []);
 

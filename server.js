@@ -37,6 +37,7 @@ app.prepare().then(() => {
   const MASTER_ROOM = "PARTY";
   const partyState = {
     hostId: null,
+    signupsOpen: true,
     players: [], // { id, name, emoji, color, score }
     status: 'lobby', // 'lobby', 'playing', 'results', 'game-over'
     currentGameId: null,
@@ -59,7 +60,8 @@ app.prepare().then(() => {
       // Immediately send current state to the display screen in case a game is already running or in lobby
       socket.emit('master-update', { 
         players: partyState.players, 
-        status: partyState.status 
+        status: partyState.status,
+        signupsOpen: partyState.signupsOpen
       });
       if (partyState.status === 'playing' && partyState.questions.length > 0) {
         const q = partyState.questions[partyState.currentQuestionIndex];
@@ -85,13 +87,18 @@ app.prepare().then(() => {
       socket.join(MASTER_ROOM);
       socket.emit('master-update', { 
         players: partyState.players, 
-        status: partyState.status 
+        status: partyState.status,
+        signupsOpen: partyState.signupsOpen
       });
       console.log(`Host registered on master lobby.`);
     });
 
     // Player joins the master lobby once for the whole night
     socket.on('join-master-lobby', ({ playerName, emoji, color, playerKey }, callback) => {
+      if (!partyState.signupsOpen) {
+        callback({ success: false, error: 'The room is closed for the night.' });
+        return;
+      }
       socket.join(MASTER_ROOM);
       
       // A browser keeps its player key, so refreshing it updates the same player.
@@ -116,6 +123,21 @@ app.prepare().then(() => {
       io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
       callback({ success: true });
       console.log(`${emoji} ${playerName} joined the master party!`);
+    });
+
+    socket.on('set-signups-open', ({ open }, callback) => {
+      if (socket.id !== partyState.hostId) return callback?.({ success: false });
+      partyState.signupsOpen = Boolean(open);
+      if (!partyState.signupsOpen) {
+        const playerIds = partyState.players.map((player) => player.id);
+        io.to(MASTER_ROOM).emit('room-closed');
+        playerIds.forEach((playerId) => io.sockets.sockets.get(playerId)?.leave(MASTER_ROOM));
+        partyState.players = [];
+        io.to(MASTER_ROOM).emit('update-players', { players: [] });
+      } else {
+        io.emit('room-opened');
+      }
+      callback?.({ success: true, signupsOpen: partyState.signupsOpen });
     });
 
     // Only the host can rename a player from the dashboard.
