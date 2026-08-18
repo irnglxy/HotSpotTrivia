@@ -64,6 +64,15 @@ export default function DisplayScreen() {
       setFinalScores(data.players);
     });
 
+    socket.on('game-ended', () => {
+      setStatus('lobby');
+      setCurrentQuestion(null);
+      setAnswerBreakdown(null);
+      setRoundResults(null);
+      setWinnerReveal(null);
+      setFinalScores([]);
+    });
+
     return () => {
       socket.off('join-display-screen');
       socket.off('master-update');
@@ -74,6 +83,7 @@ export default function DisplayScreen() {
       socket.off('round-results');
       socket.off('winner-reveal');
       socket.off('game-over');
+      socket.off('game-ended');
     };
   }, []);
 
@@ -150,9 +160,9 @@ export default function DisplayScreen() {
 
         {/* STATE 2: LIVE QUESTION BOARD */}
         {status === 'playing' && currentQuestion && (
-          <div className="w-full space-y-8">
+          <div className="w-full space-y-6">
             <div className="flex justify-between items-center">
-              <span className="text-zinc-400 font-bold text-xl uppercase tracking-widest">
+              <span className="text-zinc-400 font-bold text-lg uppercase tracking-widest">
                 Question {currentQuestion.questionNumber} of {currentQuestion.totalQuestions}
               </span>
               
@@ -205,14 +215,14 @@ export default function DisplayScreen() {
               </span>
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl text-center">
-              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-3">How the room voted</p>
-              <h2 className="text-3xl md:text-4xl font-black text-white leading-tight">
+            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl text-center">
+              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-2">How the room voted</p>
+              <h2 className="text-2xl md:text-3xl font-black text-white leading-tight">
                 {answerBreakdown.questionText}
               </h2>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3">
               {answerBreakdown.options.map((optText, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const count = answerBreakdown.counts[optLetter] || 0;
@@ -228,25 +238,25 @@ export default function DisplayScreen() {
                 return (
                   <div
                     key={idx}
-                    className={`bg-zinc-900 border p-5 rounded-3xl ${isCorrect ? 'border-emerald-400 shadow-lg shadow-emerald-500/10' : 'border-zinc-800'}`}
+                    className={`bg-zinc-900 border p-4 rounded-3xl ${isCorrect ? 'border-emerald-400 shadow-lg shadow-emerald-500/10' : 'border-zinc-800'}`}
                   >
-                    <div className="flex justify-between items-center mb-3 gap-4">
-                      <div className="flex items-center gap-4 min-w-0">
-                        <span className={`${barColors[optLetter]} w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl shrink-0`}>
+                    <div className="flex justify-between items-center mb-2 gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`${barColors[optLetter]} w-10 h-10 rounded-2xl flex items-center justify-center font-black text-lg shrink-0`}>
                           {optLetter}
                         </span>
-                        <span className="text-2xl font-bold text-white truncate">{optText}</span>
+                        <span className="text-xl font-bold text-white truncate">{optText}</span>
                         {isCorrect && (
                           <span className="shrink-0 text-sm font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950 border border-emerald-700 px-3 py-1 rounded-full">
                             Correct
                           </span>
                         )}
                       </div>
-                      <span className="font-mono text-2xl font-black text-white shrink-0">
-                        {count} <span className="text-zinc-500 text-lg font-bold">({pct}%)</span>
+                      <span className="font-mono text-xl font-black text-white shrink-0">
+                        {count} <span className="text-zinc-500 text-base font-bold">({pct}%)</span>
                       </span>
                     </div>
-                    <div className="h-4 bg-zinc-950 rounded-full overflow-hidden">
+                    <div className="h-3 bg-zinc-950 rounded-full overflow-hidden">
                       <div
                         className={`${barColors[optLetter]} h-full rounded-full transition-all duration-700`}
                         style={{ width: `${Math.max(pct, count > 0 ? 4 : 0)}%` }}

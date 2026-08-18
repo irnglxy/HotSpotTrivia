@@ -75,18 +75,20 @@ app.prepare().then(() => {
     });
 
     // Player joins the master lobby once for the whole night
-    socket.on('join-master-lobby', ({ playerName, emoji, color }, callback) => {
+    socket.on('join-master-lobby', ({ playerName, emoji, color, playerKey }, callback) => {
       socket.join(MASTER_ROOM);
       
-      // Check if player already exists by socket or name, update or push
-      const existingPlayer = partyState.players.find(p => p.id === socket.id);
+      // A browser keeps its player key, so refreshing it updates the same player.
+      const existingPlayer = partyState.players.find(p => p.id === socket.id || (playerKey && p.playerKey === playerKey));
       if (existingPlayer) {
+        existingPlayer.id = socket.id;
         existingPlayer.name = playerName;
         existingPlayer.emoji = emoji || '🎮';
         existingPlayer.color = color || '#a855f7';
       } else {
         partyState.players.push({
           id: socket.id,
+          playerKey,
           name: playerName,
           emoji: emoji || '🎮',
           color: color || '#a855f7',
@@ -98,6 +100,25 @@ app.prepare().then(() => {
       io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
       callback({ success: true });
       console.log(`${emoji} ${playerName} joined the master party!`);
+    });
+
+    // Only the host can rename a player from the dashboard.
+    socket.on('rename-player', ({ playerId, playerName }, callback) => {
+      if (socket.id !== partyState.hostId) {
+        callback?.({ success: false, error: 'Only the host can rename players.' });
+        return;
+      }
+
+      const name = playerName?.trim().slice(0, 15);
+      const player = partyState.players.find((candidate) => candidate.id === playerId);
+      if (!player || !name) {
+        callback?.({ success: false, error: 'Enter a valid player name.' });
+        return;
+      }
+
+      player.name = name;
+      io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
+      callback?.({ success: true });
     });
 
     // Host selects a game and loads questions, resetting scores for this new game
@@ -145,6 +166,11 @@ app.prepare().then(() => {
     // After the winner is shown, host opens the full standings
     socket.on('show-final-scores', () => {
       showFinalScores(io, partyState);
+    });
+
+    // Host closes the final scoreboard and returns every screen to the party lobby
+    socket.on('end-game', () => {
+      endGame(io, partyState);
     });
 
     // Host clicks "Next Question"
@@ -274,7 +300,18 @@ function buildWinnerPayload(partyState) {
   const ranked = [...partyState.players].sort((a, b) => b.score - a.score);
   const topScore = ranked[0] ? ranked[0].score : 0;
   const winners = ranked.filter((p) => p.score === topScore && ranked.length > 0);
-  return { winners, players: ranked };
+  let previousScore = null;
+  let previousPlace = null;
+  const podium = ranked
+    .map((player, index) => {
+      const place = player.score === previousScore ? previousPlace : index + 1;
+      previousScore = player.score;
+      previousPlace = place;
+      return { ...player, place };
+    })
+    .filter((player) => player.place <= 3);
+
+  return { winners, players: ranked, podium };
 }
 
 function revealWinner(io, partyState) {
@@ -290,4 +327,16 @@ function showFinalScores(io, partyState) {
   io.to("PARTY").emit('game-over', {
     players: [...partyState.players].sort((a, b) => b.score - a.score)
   });
+}
+
+function endGame(io, partyState) {
+  if (partyState.status !== 'game-over') return;
+  partyState.status = 'lobby';
+  partyState.currentGameId = null;
+  partyState.questions = [];
+  partyState.currentQuestionIndex = 0;
+  partyState.answersThisRound = {};
+  partyState.lastBreakdown = null;
+  partyState.lastWinner = null;
+  io.to("PARTY").emit('game-ended');
 }

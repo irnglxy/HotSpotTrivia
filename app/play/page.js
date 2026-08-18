@@ -7,14 +7,18 @@ import { socket } from '@/lib/socket';
 const EMOJIS = [
   '🍒', '🌭', '🔥', '⭐', '🍕', '🦊', '⚡', '💀', '🤖', '👑',
   '🦄', '🐱', '🐶', '🐵', '👻', '👽', '💩', '🎉', '❤️', '🍩',
-  '🎸', '🏆', '💎', '🎯', '🥑', '🍔', '🚀', '🍆', '🐉', '🐳'
+  '🎸', '🏆', '💎', '🎯', '🥑', '🍔', '🚀', '🍆', '💦', '🐳'
 ];
 const COLORS = ['#a855f7', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
+const PLAYER_STORAGE_KEY = 'hotspot-trivia-player';
+
+const createPlayerKey = () => globalThis.crypto?.randomUUID?.() || `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function PlayPage() {
   const [playerName, setPlayerName] = useState('');
   const [selectedEmoji, setSelectedEmoji] = useState('🎮');
   const [selectedColor, setSelectedColor] = useState('#a855f7');
+  const [playerKey, setPlayerKey] = useState(null);
   
   const [joined, setJoined] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -24,7 +28,8 @@ export default function PlayPage() {
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [answered, setAnswered] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
-  const [isWinner, setIsWinner] = useState(false);
+  const [podiumPlace, setPodiumPlace] = useState(null);
+  const [showPodiumPlace, setShowPodiumPlace] = useState(false);
 
   useEffect(() => {
     socket.on('next-question', (qData) => {
@@ -32,7 +37,8 @@ export default function PlayPage() {
       setCurrentQuestion(qData);
       setAnswered(false);
       setSelectedAnswer(null);
-      setIsWinner(false);
+      setPodiumPlace(null);
+      setShowPodiumPlace(false);
     });
 
     socket.on('answer-breakdown', () => {
@@ -40,13 +46,23 @@ export default function PlayPage() {
     });
 
     socket.on('winner-reveal', (data) => {
-      setIsWinner(data.winners.some((winner) => winner.id === socket.id));
+      const playerResult = data.podium.find((player) => player.id === socket.id);
+      setPodiumPlace(playerResult?.place ?? null);
+      setShowPodiumPlace(false);
     });
 
     socket.on('game-over', () => {
       setGameStarted(false);
       setCurrentQuestion(null);
-      setIsWinner(false);
+    });
+
+    socket.on('game-ended', () => {
+      setGameStarted(false);
+      setCurrentQuestion(null);
+      setAnswered(false);
+      setSelectedAnswer(null);
+      setPodiumPlace(null);
+      setShowPodiumPlace(false);
     });
 
     return () => {
@@ -54,8 +70,42 @@ export default function PlayPage() {
       socket.off('answer-breakdown');
       socket.off('winner-reveal');
       socket.off('game-over');
+      socket.off('game-ended');
     };
   }, []);
+
+  useEffect(() => {
+    const savedPlayer = localStorage.getItem(PLAYER_STORAGE_KEY);
+    if (!savedPlayer) return;
+
+    try {
+      const savedProfile = JSON.parse(savedPlayer);
+      if (!savedProfile.playerName || !savedProfile.playerKey) return;
+
+      socket.emit('join-master-lobby', {
+        playerName: savedProfile.playerName,
+        emoji: savedProfile.emoji || '🎮',
+        color: savedProfile.color || '#a855f7',
+        playerKey: savedProfile.playerKey
+      }, (response) => {
+        if (response?.success) {
+          setPlayerName(savedProfile.playerName);
+          setSelectedEmoji(savedProfile.emoji || '🎮');
+          setSelectedColor(savedProfile.color || '#a855f7');
+          setPlayerKey(savedProfile.playerKey);
+          setJoined(true);
+        }
+      });
+    } catch {
+      localStorage.removeItem(PLAYER_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!podiumPlace) return;
+    const timer = setTimeout(() => setShowPodiumPlace(true), 3000);
+    return () => clearTimeout(timer);
+  }, [podiumPlace]);
 
   const handleJoinOrUpdate = (e) => {
     e.preventDefault();
@@ -64,12 +114,21 @@ export default function PlayPage() {
       return;
     }
 
+    const nextPlayerKey = playerKey || createPlayerKey();
     socket.emit('join-master-lobby', { 
       playerName: playerName.trim(), 
       emoji: selectedEmoji, 
-      color: selectedColor 
+      color: selectedColor,
+      playerKey: nextPlayerKey
     }, (response) => {
       if (response && response.success) {
+        setPlayerKey(nextPlayerKey);
+        localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify({
+          playerName: playerName.trim(),
+          emoji: selectedEmoji,
+          color: selectedColor,
+          playerKey: nextPlayerKey
+        }));
         setJoined(true);
         setIsEditingName(false);
         setError('');
@@ -193,7 +252,7 @@ export default function PlayPage() {
       )}
 
       {/* 2. WAITING LOBBY SCREEN */}
-      {joined && !isEditingName && !gameStarted && !isWinner && (
+      {joined && !isEditingName && !gameStarted && !podiumPlace && (
         <div className="text-center my-auto p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl mx-auto max-w-md w-full">
           <div className="w-20 h-20 bg-emerald-500/20 border border-emerald-500 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-pulse">
             ✓
@@ -204,7 +263,7 @@ export default function PlayPage() {
       )}
 
       {/* 3. QUESTION + ANSWER BUTTONS */}
-      {joined && !isEditingName && gameStarted && currentQuestion && !isWinner && (
+      {joined && !isEditingName && gameStarted && currentQuestion && !podiumPlace && (
         <div className="w-full max-w-md mx-auto my-auto flex flex-col justify-center">
           <p className="text-center text-xs uppercase tracking-widest text-zinc-500 font-semibold mb-2">
             Question {currentQuestion.questionNumber} of {currentQuestion.totalQuestions}
@@ -251,13 +310,22 @@ export default function PlayPage() {
         </div>
       )}
 
-      {/* 4. WINNER CELEBRATION */}
-      {joined && !isEditingName && isWinner && (
+      {/* 4. PODIUM CELEBRATION */}
+      {joined && !isEditingName && podiumPlace && (
         <div className="w-full max-w-md mx-auto my-auto text-center bg-gradient-to-b from-amber-500/20 to-zinc-900 border border-amber-400/60 rounded-3xl p-10 shadow-2xl shadow-amber-500/20">
-          <div className="text-8xl mb-6 animate-bounce">🏆</div>
-          <p className="text-sm uppercase tracking-[0.3em] text-amber-300 font-bold mb-3">You did it</p>
-          <h2 className="text-5xl font-black text-white mb-4">Winner!</h2>
-          <p className="text-zinc-300 text-lg">You won this game. Celebrate!</p>
+          {showPodiumPlace ? (
+            <>
+              <div className="text-8xl mb-6 animate-bounce">{podiumPlace === 1 ? '🏆' : podiumPlace === 2 ? '🥈' : '🥉'}</div>
+              <p className="text-sm uppercase tracking-[0.3em] text-amber-300 font-bold mb-3">You did it</p>
+              <h2 className="text-5xl font-black text-white mb-4">{podiumPlace === 1 ? 'Winner!' : `${podiumPlace}${podiumPlace === 2 ? 'nd' : 'rd'} Place!`}</h2>
+              <p className="text-zinc-300 text-lg">{podiumPlace === 1 ? 'You won this game. Celebrate!' : 'You made the podium. Great game!'}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-zinc-300 mb-8">The winner is...</p>
+              <div className="h-20 w-20 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
+            </>
+          )}
         </div>
       )}
 

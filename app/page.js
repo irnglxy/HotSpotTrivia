@@ -79,6 +79,11 @@ export default function MasterHostDashboard() {
       setView('game-over');
       setFinalScores(data.players);
     });
+    socket.on('game-ended', () => {
+      setView('library');
+      setWinnerReveal(null);
+      setFinalScores([]);
+    });
 
     return () => {
       socket.off('host-master-lobby');
@@ -90,6 +95,7 @@ export default function MasterHostDashboard() {
       socket.off('round-results');
       socket.off('winner-reveal');
       socket.off('game-over');
+      socket.off('game-ended');
     };
   }, [players.length]);
 
@@ -135,7 +141,17 @@ export default function MasterHostDashboard() {
   const showScores = () => socket.emit('show-scores');
   const revealWinner = () => socket.emit('reveal-winner');
   const showFinalScores = () => socket.emit('show-final-scores');
+  const endGame = () => socket.emit('end-game');
   const nextQuestion = () => socket.emit('next-question-btn');
+
+  const renamePlayer = (player) => {
+    const playerName = prompt(`Rename ${player.name}`, player.name);
+    if (playerName === null) return;
+
+    socket.emit('rename-player', { playerId: player.id, playerName }, (response) => {
+      if (!response?.success) alert(response?.error || 'Could not rename player.');
+    });
+  };
 
   // Delete a game
   const deleteGame = async (gameId) => {
@@ -284,6 +300,14 @@ export default function MasterHostDashboard() {
                   >
                     <span>{player.emoji}</span>
                     <span>{player.name}</span>
+                    <button
+                      onClick={() => renamePlayer(player)}
+                      className="text-zinc-400 hover:text-white transition"
+                      title={`Rename ${player.name}`}
+                      aria-label={`Rename ${player.name}`}
+                    >
+                      ✏️
+                    </button>
                   </div>
                 ))}
               </div>
@@ -599,8 +623,8 @@ export default function MasterHostDashboard() {
               ))}
             </div>
 
-            <button onClick={() => setView('library')} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 py-4 rounded-xl shadow-xl transition">
-              Choose Next Game for the Evening 🚀
+            <button onClick={endGame} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 py-4 rounded-xl shadow-xl transition">
+              End Game &amp; Return to Lobby
             </button>
           </div>
         )}
