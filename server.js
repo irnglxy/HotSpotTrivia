@@ -12,6 +12,20 @@ const handler = app.getRequestHandler();
 
 const db = new Database('database.sqlite');
 
+function ensureColumn(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!columns.some((existing) => existing.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+ensureColumn('games', 'game_type', "TEXT DEFAULT 'trivia'");
+ensureColumn('games', 'display_order', 'INTEGER');
+ensureColumn('questions', 'correct_number', 'REAL');
+ensureColumn('questions', 'answer_min', 'REAL');
+ensureColumn('questions', 'answer_max', 'REAL');
+ensureColumn('questions', 'answer_step', 'REAL');
+
 app.prepare().then(() => {
   const httpServer = createServer(handler);
   const io = new Server(httpServer, {
@@ -128,7 +142,7 @@ app.prepare().then(() => {
       // Reset all player scores to 0 for this standalone game
       partyState.players.forEach(p => p.score = 0);
 
-      const stmt = db.prepare('SELECT * FROM questions WHERE game_id = ?');
+      const stmt = db.prepare('SELECT questions.*, games.game_type FROM questions JOIN games ON games.id = questions.game_id WHERE questions.game_id = ?');
       partyState.questions = stmt.all(gameId);
       partyState.currentQuestionIndex = 0;
       partyState.status = 'lobby';
@@ -151,6 +165,10 @@ app.prepare().then(() => {
     // Host ends the question (timer may still be running) and shows answer distribution
     socket.on('reveal-answers', () => {
       revealAnswers(io, partyState);
+    });
+
+    socket.on('score-shot-in-the-dark', ({ correctNumber }, callback) => {
+      scoreShotInTheDark(io, partyState, correctNumber, socket, callback);
     });
 
     // Host moves from answer chart to the round leaderboard (non-final questions)
@@ -189,21 +207,19 @@ app.prepare().then(() => {
       if (partyState.answersThisRound[socket.id]) return; // prevent double submission
 
       const q = partyState.questions[partyState.currentQuestionIndex];
+      const isShotInTheDark = q.game_type === 'shot-in-the-dark';
+      const numericAnswer = Number(answer);
+      if (isShotInTheDark && (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max)) return;
+
       const timeTaken = (Date.now() - partyState.questionStartTime) / 1000;
       const timeLimit = q.time_limit || 30;
+      const isCorrect = !isShotInTheDark && answer === q.correct_answer;
+      const pointsEarned = isCorrect ? Math.round(500 + (500 * Math.max(0, 1 - (timeTaken / timeLimit)))) : 0;
 
-      const isCorrect = answer === q.correct_answer;
-      let pointsEarned = 0;
-
-      if (isCorrect) {
-        const speedFactor = Math.max(0, (1 - (timeTaken / timeLimit)));
-        pointsEarned = Math.round(500 + (500 * speedFactor));
-      }
-
-      partyState.answersThisRound[socket.id] = { answer, isCorrect, pointsEarned };
+      partyState.answersThisRound[socket.id] = { answer: isShotInTheDark ? numericAnswer : answer, isCorrect, pointsEarned };
 
       const player = partyState.players.find(p => p.id === socket.id);
-      if (player) {
+      if (player && !isShotInTheDark) {
         player.score += pointsEarned;
       }
 
@@ -230,10 +246,14 @@ app.prepare().then(() => {
 
 function buildQuestionPayload(partyState, q) {
   return {
+    gameType: q.game_type || 'trivia',
     questionNumber: partyState.currentQuestionIndex + 1,
     totalQuestions: partyState.questions.length,
     questionText: q.question_text,
     options: [q.option_a, q.option_b, q.option_c, q.option_d],
+    answerMin: q.answer_min,
+    answerMax: q.answer_max,
+    answerStep: q.answer_step,
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
@@ -252,9 +272,18 @@ function sendNextQuestion(io, partyState) {
 
 function revealAnswers(io, partyState) {
   if (partyState.status !== 'playing') return;
-  partyState.status = 'answer-reveal';
 
   const q = partyState.questions[partyState.currentQuestionIndex];
+  if (q.game_type === 'shot-in-the-dark') {
+    partyState.status = 'answer-entry';
+    io.to(partyState.hostId).emit('request-correct-number', {
+      questionText: q.question_text,
+      correctNumber: q.correct_number ?? ''
+    });
+    return;
+  }
+
+  partyState.status = 'answer-reveal';
   const counts = { A: 0, B: 0, C: 0, D: 0 };
   Object.values(partyState.answersThisRound).forEach((entry) => {
     if (counts[entry.answer] !== undefined) counts[entry.answer]++;
@@ -276,10 +305,55 @@ function revealAnswers(io, partyState) {
   io.to("PARTY").emit('answer-breakdown', payload);
 }
 
+function scoreShotInTheDark(io, partyState, correctNumber, socket, callback) {
+  if (socket.id !== partyState.hostId) {
+    callback?.({ success: false, error: 'Only the host can score this question.' });
+    return;
+  }
+  if (partyState.status !== 'answer-entry') {
+    callback?.({ success: false, error: 'This question is no longer waiting for an answer.' });
+    return;
+  }
+  const q = partyState.questions[partyState.currentQuestionIndex];
+  const correct = Number(correctNumber);
+  if (q.game_type !== 'shot-in-the-dark' || !Number.isFinite(correct)) {
+    callback?.({ success: false, error: 'Enter a valid correct number.' });
+    return;
+  }
+
+  db.prepare('UPDATE questions SET correct_number = ? WHERE id = ?').run(correct, q.id);
+  q.correct_number = correct;
+  const answerRange = Math.abs(q.answer_max - q.answer_min);
+  const rangeTolerance = answerRange * 0.2;
+  const correctValueTolerance = Math.abs(correct) * 0.2;
+  const scoringTolerance = correctValueTolerance === 0 ? rangeTolerance : Math.min(correctValueTolerance, rangeTolerance);
+  const guesses = Object.entries(partyState.answersThisRound).map(([playerId, entry]) => {
+    const difference = Math.abs(entry.answer - correct);
+    const pointsEarned = difference === 0 ? 1200 : scoringTolerance > 0 && difference <= scoringTolerance ? Math.round(100 + 800 * (1 - difference / scoringTolerance)) : 0;
+    entry.pointsEarned = pointsEarned;
+    const player = partyState.players.find((candidate) => candidate.id === playerId);
+    if (player) player.score += pointsEarned;
+    return { playerId, name: player?.name || 'Player', emoji: player?.emoji || '🎮', answer: entry.answer, pointsEarned, difference };
+  });
+
+  partyState.status = 'answer-reveal';
+  const payload = {
+    gameType: 'shot-in-the-dark', questionText: q.question_text, correctNumber: correct,
+    guesses, totalAnswers: guesses.length, totalPlayers: partyState.players.length,
+    questionNumber: partyState.currentQuestionIndex + 1, totalQuestions: partyState.questions.length,
+    isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+  };
+  partyState.lastBreakdown = payload;
+  io.to("PARTY").emit('answer-breakdown', payload);
+  callback?.({ success: true, payload });
+}
+
 function buildRoundResultsPayload(partyState, q) {
   const isLastQuestion = partyState.currentQuestionIndex === partyState.questions.length - 1;
   return {
+    gameType: q.game_type || 'trivia',
     correctAnswer: q.correct_answer,
+    correctNumber: q.correct_number,
     players: partyState.players,
     isLastQuestion,
     isFinalQuestionNext: !isLastQuestion && (partyState.currentQuestionIndex + 1 === partyState.questions.length - 1),

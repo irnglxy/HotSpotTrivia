@@ -179,8 +179,12 @@ export default function DisplayScreen() {
               </h2>
             </div>
 
-            {/* Answer Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {currentQuestion.gameType === 'shot-in-the-dark' ? (
+              <div className="bg-purple-950/50 border border-purple-700 rounded-3xl p-8 text-center">
+                <p className="text-3xl font-black text-purple-200">Shot In The Dark</p>
+                <p className="text-zinc-400 mt-3 text-xl">Make your best estimate between {currentQuestion.answerMin} and {currentQuestion.answerMax}</p>
+              </div>
+            ) : <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {currentQuestion.options.map((optText, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const optColors = {
@@ -199,12 +203,26 @@ export default function DisplayScreen() {
                   </div>
                 );
               })}
-            </div>
+            </div>}
           </div>
         )}
 
         {/* STATE 3: HOW THE ROOM ANSWERED */}
-        {status === 'answer-reveal' && answerBreakdown && (
+        {status === 'answer-reveal' && answerBreakdown?.gameType === 'shot-in-the-dark' && (
+          <div className="max-w-4xl mx-auto text-center space-y-6">
+            <p className="text-purple-300 font-bold uppercase tracking-widest">Shot In The Dark</p>
+            <h2 className="text-4xl font-black text-white">{answerBreakdown.questionText}</h2>
+            <div className="bg-zinc-900 border border-emerald-500 p-8 rounded-3xl"><p className="text-zinc-400 uppercase tracking-widest font-bold mb-2">Correct answer</p><p className="text-7xl font-black text-emerald-400">{answerBreakdown.correctNumber}</p></div>
+            {(() => {
+              const closest = [...answerBreakdown.guesses].sort((a, b) => a.difference - b.difference).slice(0, 10);
+              const spread = Math.max(1, ...closest.map((guess) => Math.abs(guess.answer - answerBreakdown.correctNumber)));
+              return <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8"><p className="text-zinc-400 font-bold mb-12">Closest guesses</p><div className="relative h-20 border-t-2 border-zinc-600"><div className="absolute -top-3 bottom-0 left-1/2 border-l-4 border-emerald-400"><span className="absolute top-3 -translate-x-1/2 whitespace-nowrap text-emerald-400 font-black">Correct</span></div>{closest.map((guess) => { const left = 50 + ((guess.answer - answerBreakdown.correctNumber) / spread) * 45; return <div key={guess.playerId} className="absolute -top-8" style={{ left: `${left}%`, transform: 'translateX(-50%)' }}><span className="text-2xl">{guess.emoji}</span><span className="block text-xs font-bold text-white whitespace-nowrap">{guess.answer}</span></div>; })}</div></div>;
+            })()}
+            <p className="text-zinc-400 font-mono">{answerBreakdown.totalAnswers} / {answerBreakdown.totalPlayers} guesses locked in</p>
+          </div>
+        )}
+
+        {status === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && (
           <div className="w-full space-y-8">
             <div className="flex justify-between items-center">
               <span className="text-zinc-400 font-bold text-xl uppercase tracking-widest">
@@ -274,7 +292,7 @@ export default function DisplayScreen() {
           <div className="max-w-3xl mx-auto text-center space-y-8">
             <div className="space-y-2">
               <h2 className="text-5xl font-black text-purple-400">Round Complete!</h2>
-              <p className="text-zinc-400 text-2xl">Correct Answer was: <span className="text-emerald-400 font-extrabold text-3xl">[{roundResults.correctAnswer}]</span></p>
+              {roundResults.gameType !== 'shot-in-the-dark' && <p className="text-zinc-400 text-2xl">Correct Answer was: <span className="text-emerald-400 font-extrabold text-3xl">[{roundResults.correctAnswer}]</span></p>}
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-4">

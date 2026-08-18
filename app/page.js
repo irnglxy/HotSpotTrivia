@@ -3,6 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import { socket } from '@/lib/socket';
 
+const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
+  ? { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', correctNumber: '', answerMin: 0, answerMax: 100, answerStep: 1, timeLimit: 30 }
+  : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', timeLimit: 15 };
+
 export default function MasterHostDashboard() {
   const [view, setView] = useState('library'); // 'library', 'lobby', 'question', 'answer-reveal', 'results', 'winner-reveal', 'game-over', 'builder'
   
@@ -26,9 +30,9 @@ export default function MasterHostDashboard() {
   // Builder State
   const [editingGameId, setEditingGameId] = useState(null);
   const [gameTitle, setGameTitle] = useState('');
-  const [questions, setQuestions] = useState([
-    { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', timeLimit: 15 }
-  ]);
+  const [gameType, setGameType] = useState('trivia');
+  const [questions, setQuestions] = useState([newQuestion('trivia')]);
+  const [correctNumber, setCorrectNumber] = useState('');
 
   const fetchGames = async () => {
     try {
@@ -84,6 +88,7 @@ export default function MasterHostDashboard() {
       setWinnerReveal(null);
       setFinalScores([]);
     });
+    socket.on('request-correct-number', (data) => { setCorrectNumber(data.correctNumber); setView('answer-entry'); });
 
     return () => {
       socket.off('host-master-lobby');
@@ -96,6 +101,7 @@ export default function MasterHostDashboard() {
       socket.off('winner-reveal');
       socket.off('game-over');
       socket.off('game-ended');
+      socket.off('request-correct-number');
     };
   }, [players.length]);
 
@@ -143,6 +149,14 @@ export default function MasterHostDashboard() {
   const showFinalScores = () => socket.emit('show-final-scores');
   const endGame = () => socket.emit('end-game');
   const nextQuestion = () => socket.emit('next-question-btn');
+  const scoreShotInTheDark = () => socket.emit('score-shot-in-the-dark', { correctNumber }, (response) => {
+    if (!response?.success) {
+      alert(response?.error || 'Enter a valid number.');
+      return;
+    }
+    setAnswerBreakdown(response.payload);
+    setView('answer-reveal');
+  });
 
   const renamePlayer = (player) => {
     const playerName = prompt(`Rename ${player.name}`, player.name);
@@ -151,6 +165,16 @@ export default function MasterHostDashboard() {
     socket.emit('rename-player', { playerId: player.id, playerName }, (response) => {
       if (!response?.success) alert(response?.error || 'Could not rename player.');
     });
+  };
+
+  const moveGame = async (index, direction) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= games.length) return;
+    const reordered = [...games];
+    [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+    setGames(reordered);
+    const response = await fetch('/api/games', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gameIds: reordered.map((game) => game.id) }) });
+    if (!response.ok) fetchGames();
   };
 
   // Delete a game
@@ -173,7 +197,7 @@ export default function MasterHostDashboard() {
   const openNewBuilder = () => {
     setEditingGameId(null);
     setGameTitle('');
-    setQuestions([{ questionText: '', options: ['', '', '', ''], correctAnswer: 'A', timeLimit: 15 }]);
+    setGameType('trivia'); setQuestions([newQuestion('trivia')]);
     setView('builder');
   };
 
@@ -185,6 +209,7 @@ export default function MasterHostDashboard() {
       if (res.ok) {
         setEditingGameId(data.game.id);
         setGameTitle(data.game.title);
+        setGameType(data.game.gameType || 'trivia');
         setQuestions(data.game.questions);
         setView('builder');
       } else {
@@ -196,7 +221,7 @@ export default function MasterHostDashboard() {
   };
 
   const addQuestionField = () => {
-    setQuestions([...questions, { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', timeLimit: 15 }]);
+    setQuestions([...questions, newQuestion(gameType)]);
   };
 
   const removeQuestionField = (index) => {
@@ -222,7 +247,7 @@ export default function MasterHostDashboard() {
       return;
     }
 
-    const payload = { id: editingGameId, title: gameTitle, questions };
+    const payload = { id: editingGameId, title: gameTitle, gameType, questions };
     const method = editingGameId ? 'PUT' : 'POST';
 
     try {
@@ -235,7 +260,7 @@ export default function MasterHostDashboard() {
         alert(editingGameId ? 'Game updated successfully!' : 'Game created successfully!');
         setEditingGameId(null);
         setGameTitle('');
-        setQuestions([{ questionText: '', options: ['', '', '', ''], correctAnswer: 'A', timeLimit: 15 }]);
+        setQuestions([newQuestion(gameType)]);
         setLoading(true);
         fetchGames();
         setView('library');
@@ -330,13 +355,14 @@ export default function MasterHostDashboard() {
               </div>
             ) : (
               <div className="grid gap-4">
-                {games.map((game) => (
+                {games.map((game, index) => (
                   <div key={game.id} className="p-5 bg-zinc-900 border border-zinc-800 rounded-2xl flex justify-between items-center shadow-lg">
                     <div>
                       <h3 className="font-bold text-lg text-white">{game.title}</h3>
-                      <p className="text-sm text-zinc-400">{game.question_count} Questions</p>
+                      <p className="text-sm text-zinc-400">{game.question_count} Questions <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${game.game_type === 'shot-in-the-dark' ? 'bg-purple-950 text-purple-300' : 'bg-blue-950 text-blue-300'}`}>{game.game_type === 'shot-in-the-dark' ? 'Shot In The Dark' : 'Trivia'}</span></p>
                     </div>
                     <div className="flex items-center gap-3">
+                      <div className="flex flex-col text-xs"><button onClick={() => moveGame(index, -1)} disabled={index === 0} className="disabled:opacity-30">▲</button><button onClick={() => moveGame(index, 1)} disabled={index === games.length - 1} className="disabled:opacity-30">▼</button></div>
                       <button 
                         onClick={() => loadGameForEdit(game.id)}
                         className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-purple-300 px-4 py-2.5 rounded-xl font-semibold transition text-sm"
@@ -440,7 +466,11 @@ export default function MasterHostDashboard() {
               {currentQuestion.questionText}
             </h1>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+            {currentQuestion.gameType === 'shot-in-the-dark' ? (
+              <div className="mb-10 bg-purple-950/50 border border-purple-700 rounded-2xl p-6 text-purple-200 font-bold">
+                Shot In The Dark • Players are choosing a number between {currentQuestion.answerMin} and {currentQuestion.answerMax}
+              </div>
+            ) : <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
               {currentQuestion.options.map((opt, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const optColors = { A: 'bg-red-600', B: 'bg-blue-600', C: 'bg-yellow-600', D: 'bg-green-600' };
@@ -452,7 +482,7 @@ export default function MasterHostDashboard() {
                   </div>
                 );
               })}
-            </div>
+            </div>}
 
             {answerStats.totalPlayers > 0 && answerStats.totalAnswers === answerStats.totalPlayers && timeLeft > 0 && (
               <p className="text-emerald-400 font-semibold mb-4">Everyone has locked in — the timer keeps running until you reveal.</p>
@@ -468,7 +498,22 @@ export default function MasterHostDashboard() {
         )}
 
         {/* VIEW 3b: ANSWER DISTRIBUTION */}
-        {view === 'answer-reveal' && answerBreakdown && (
+        {view === 'answer-reveal' && answerBreakdown?.gameType === 'shot-in-the-dark' && (
+          <div className="max-w-3xl mx-auto text-center space-y-6">
+            <p className="text-purple-300 font-bold uppercase tracking-widest">Shot In The Dark</p>
+            <h2 className="text-3xl font-black text-white">Correct answer: <span className="text-emerald-400">{answerBreakdown.correctNumber}</span></h2>
+            <p className="text-zinc-400">{answerBreakdown.totalAnswers} guesses scored. Players within 20% earned points; exact guesses earned 1,200.</p>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-left">
+              <h3 className="font-bold text-white mb-3">All guesses</h3>
+              <div className="max-h-64 overflow-y-auto space-y-2 pr-2">
+                {[...answerBreakdown.guesses].sort((a, b) => a.answer - b.answer).map((guess) => <div key={guess.playerId} className="flex justify-between items-center bg-zinc-950 rounded-xl p-3"><span>{guess.emoji} <span className="font-bold text-white">{guess.name}</span></span><span className="font-mono text-purple-300">{guess.answer}</span><span className="font-mono text-emerald-400">+{guess.pointsEarned}</span></div>)}
+              </div>
+            </div>
+            {answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}
+          </div>
+        )}
+
+        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && (
           <div>
             {answerBreakdown.isLastQuestion && (
               <div className="mb-6 bg-amber-950/80 border border-amber-500 text-amber-200 px-5 py-3 rounded-2xl font-bold text-center">
@@ -547,7 +592,7 @@ export default function MasterHostDashboard() {
             )}
 
             <h1 className="text-3xl font-extrabold text-purple-400 mb-2">Round Results</h1>
-            <p className="text-zinc-400 mb-6">Correct Answer was: <span className="text-emerald-400 font-bold text-2xl">[{roundResults.correctAnswer}]</span></p>
+            {roundResults.gameType !== 'shot-in-the-dark' && <p className="text-zinc-400 mb-6">Correct Answer was: <span className="text-emerald-400 font-bold text-2xl">[{roundResults.correctAnswer}]</span></p>}
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl space-y-3 mb-8">
               <h2 className="text-xl font-bold text-white mb-4">Game Leaderboard</h2>
@@ -629,6 +674,16 @@ export default function MasterHostDashboard() {
           </div>
         )}
 
+        {view === 'answer-entry' && (
+          <div className="max-w-xl mx-auto text-center bg-zinc-900 border border-zinc-800 rounded-3xl p-8">
+            <p className="text-purple-300 font-bold uppercase tracking-widest mb-3">Shot In The Dark</p>
+            <h2 className="text-3xl font-black text-white mb-3">Set the correct answer</h2>
+            <p className="text-zinc-400 mb-6">Players are locked in. You can confirm or alter this number before scores are calculated.</p>
+            <input type="number" value={correctNumber} onChange={(e) => setCorrectNumber(e.target.value)} className="w-full p-4 text-3xl text-center bg-zinc-950 border border-zinc-700 rounded-xl text-white mb-5" autoFocus />
+            <button onClick={scoreShotInTheDark} className="bg-purple-600 hover:bg-purple-500 text-white font-bold px-8 py-4 rounded-xl">Score Guesses &amp; Reveal Answer</button>
+          </div>
+        )}
+
         {/* VIEW 6: GAME BUILDER (Create / Edit Mode) */}
         {view === 'builder' && (
           <div>
@@ -645,6 +700,10 @@ export default function MasterHostDashboard() {
                 value={gameTitle}
                 onChange={(e) => setGameTitle(e.target.value)}
               />
+              <label className="block text-zinc-300 font-semibold mt-4 mb-2">Game Type</label>
+              <select value={gameType} onChange={(e) => { const type = e.target.value; setGameType(type); setQuestions([newQuestion(type)]); }} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white">
+                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option>
+              </select>
             </div>
 
             {questions.map((q, qIndex) => (
@@ -669,7 +728,7 @@ export default function MasterHostDashboard() {
                   onChange={(e) => handleQuestionChange(qIndex, 'questionText', e.target.value)}
                 />
 
-                <div className="space-y-3 mb-4">
+                {gameType === 'trivia' ? <div className="space-y-3 mb-4">
                   {q.options.map((opt, optIndex) => {
                     const optLetter = ['A', 'B', 'C', 'D'][optIndex];
                     const badgeColors = { A: 'bg-red-500/20 text-red-400 border-red-500/30', B: 'bg-blue-500/20 text-blue-400 border-blue-500/30', C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', D: 'bg-green-500/20 text-green-400 border-green-500/30' };
@@ -689,9 +748,13 @@ export default function MasterHostDashboard() {
                       </div>
                     );
                   })}
-                </div>
+                </div> : <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                  {[['answerMin', 'Minimum'], ['answerMax', 'Maximum'], ['answerStep', 'Step size']].map(([field, label]) => <label key={field} className="text-sm text-zinc-300">{label}<input type="number" value={q[field]} onChange={(e) => handleQuestionChange(qIndex, field, Number(e.target.value))} className="mt-1 w-full p-2.5 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label>)}
+                  <label className="sm:col-span-3 text-sm text-zinc-300">Correct number <span className="text-zinc-500">(optional; can be set after guesses)</span><input type="number" value={q.correctNumber} onChange={(e) => handleQuestionChange(qIndex, 'correctNumber', e.target.value)} className="mt-1 w-full p-2.5 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label>
+                </div>}
 
                 <div className="flex gap-6 pt-4 border-t border-zinc-800">
+                  {gameType === 'trivia' &&
                   <div>
                     <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Correct Answer</label>
                     <select 
@@ -705,6 +768,7 @@ export default function MasterHostDashboard() {
                       <option value="D">Option D</option>
                     </select>
                   </div>
+                  }
 
                   <div>
                     <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Time Limit (sec)</label>
