@@ -43,6 +43,8 @@ app.prepare().then(() => {
     questions: [],
     currentQuestionIndex: 0,
     questionStartTime: null,
+    questionTimer: null,
+    questionExpired: false,
     answersThisRound: {},
     lastBreakdown: null,
     lastWinner: null
@@ -204,6 +206,7 @@ app.prepare().then(() => {
     // Player submits an answer
     socket.on('submit-answer', ({ answer }) => {
       if (partyState.status !== 'playing') return;
+      if (partyState.questionExpired) return;
       if (partyState.answersThisRound[socket.id]) return; // prevent double submission
 
       const q = partyState.questions[partyState.currentQuestionIndex];
@@ -261,17 +264,28 @@ function buildQuestionPayload(partyState, q) {
 
 function sendNextQuestion(io, partyState) {
   const q = partyState.questions[partyState.currentQuestionIndex];
+  const questionIndex = partyState.currentQuestionIndex;
 
   partyState.questionStartTime = Date.now();
+  partyState.questionExpired = false;
+  clearTimeout(partyState.questionTimer);
   partyState.answersThisRound = {};
   partyState.lastBreakdown = null;
   partyState.lastWinner = null;
 
   io.to("PARTY").emit('next-question', buildQuestionPayload(partyState, q));
+  partyState.questionTimer = setTimeout(() => {
+    if (partyState.status === 'playing' && partyState.currentQuestionIndex === questionIndex) {
+      partyState.questionExpired = true;
+      io.to("PARTY").emit('question-time-up');
+    }
+  }, (q.time_limit || 15) * 1000);
 }
 
 function revealAnswers(io, partyState) {
   if (partyState.status !== 'playing') return;
+  partyState.questionExpired = true;
+  clearTimeout(partyState.questionTimer);
 
   const q = partyState.questions[partyState.currentQuestionIndex];
   if (q.game_type === 'shot-in-the-dark') {

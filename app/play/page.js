@@ -47,6 +47,11 @@ export default function PlayPage() {
       setAnswered(true);
     });
 
+    socket.on('question-time-up', () => {
+      setAnswered(true);
+      setSelectedAnswer(null);
+    });
+
     socket.on('winner-reveal', (data) => {
       const playerResult = data.podium.find((player) => player.id === socket.id);
       setPodiumPlace(playerResult?.place ?? null);
@@ -70,6 +75,7 @@ export default function PlayPage() {
     return () => {
       socket.off('next-question');
       socket.off('answer-breakdown');
+      socket.off('question-time-up');
       socket.off('winner-reveal');
       socket.off('game-over');
       socket.off('game-ended');
@@ -147,7 +153,7 @@ export default function PlayPage() {
     socket.emit('submit-answer', { answer: optionLetter });
   };
 
-  const isShotInTheDark = currentQuestion?.gameType === 'shot-in-the-dark' || (Number.isFinite(currentQuestion?.answerMin) && Number.isFinite(currentQuestion?.answerMax));
+  const isShotInTheDark = currentQuestion?.gameType === 'shot-in-the-dark';
 
   const adjustGuess = (amount) => {
     setGuessValue((current) => Math.min(currentQuestion.answerMax, Math.max(currentQuestion.answerMin, Number((current + amount).toFixed(8)))));
