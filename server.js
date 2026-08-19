@@ -51,6 +51,9 @@ app.prepare().then(() => {
     questionTimer: null,
     questionExpired: false,
     answersThisRound: {},
+    previousRanks: null,
+    pickerRun: null,
+    pickerTimer: null,
     lastBreakdown: null,
     lastWinner: null
   };
@@ -83,6 +86,10 @@ app.prepare().then(() => {
         socket.emit('game-over', {
           players: [...partyState.players].sort((a, b) => b.score - a.score)
         });
+      } else if (partyState.status === 'picker-selecting' && partyState.pickerRun) {
+        socket.emit('player-picker-start', partyState.pickerRun);
+      } else if (partyState.status === 'picker-result' && partyState.pickerRun) {
+        socket.emit('player-picker-result', { players: partyState.pickerRun.selectedPlayers });
       }
       console.log(`Big Screen Display connected: ${socket.id}`);
     });
@@ -176,6 +183,7 @@ app.prepare().then(() => {
       const stmt = db.prepare('SELECT questions.*, games.game_type FROM questions JOIN games ON games.id = questions.game_id WHERE questions.game_id = ?');
       partyState.questions = stmt.all(gameId);
       partyState.currentQuestionIndex = 0;
+      partyState.previousRanks = null;
       partyState.status = 'lobby';
 
       io.to(MASTER_ROOM).emit('game-loaded', { 
@@ -190,13 +198,48 @@ app.prepare().then(() => {
       if (partyState.questions.length === 0) return;
       partyState.status = 'intro';
       partyState.currentQuestionIndex = 0;
+      partyState.previousRanks = null;
       io.to(MASTER_ROOM).emit('game-intro', { title: partyState.gameTitle, gameType: partyState.questions[0].game_type || 'trivia' });
     });
 
     socket.on('begin-first-question', () => {
       if (socket.id !== partyState.hostId || partyState.status !== 'intro') return;
+      if (partyState.questions[0]?.game_type === 'player-picker') {
+        partyState.status = 'picker-setup';
+        io.to(MASTER_ROOM).emit('player-picker-setup', { totalPlayers: partyState.players.length });
+        return;
+      }
       partyState.status = 'playing';
       sendNextQuestion(io, partyState);
+    });
+
+    socket.on('start-player-picker', ({ count }, callback) => {
+      if (socket.id !== partyState.hostId || partyState.status !== 'picker-setup') {
+        callback?.({ success: false, error: 'The picker is not ready to start.' });
+        return;
+      }
+      const selectedCount = Number(count);
+      if (!Number.isInteger(selectedCount) || selectedCount < 1 || selectedCount > partyState.players.length) {
+        callback?.({ success: false, error: 'Choose a valid number of players.' });
+        return;
+      }
+      const shuffledPlayers = [...partyState.players];
+      for (let index = shuffledPlayers.length - 1; index > 0; index--) {
+        const randomIndex = Math.floor(Math.random() * (index + 1));
+        [shuffledPlayers[index], shuffledPlayers[randomIndex]] = [shuffledPlayers[randomIndex], shuffledPlayers[index]];
+      }
+      const selectedPlayers = shuffledPlayers.slice(0, selectedCount);
+      const eliminatedPlayerIds = shuffledPlayers.slice(selectedCount).map((player) => player.id);
+      partyState.status = 'picker-selecting';
+      partyState.pickerRun = { players: partyState.players, selectedPlayers, eliminatedPlayerIds, duration: 10000 };
+      io.to(MASTER_ROOM).emit('player-picker-start', partyState.pickerRun);
+      clearTimeout(partyState.pickerTimer);
+      partyState.pickerTimer = setTimeout(() => {
+        if (partyState.status !== 'picker-selecting') return;
+        partyState.status = 'picker-result';
+        io.to(MASTER_ROOM).emit('player-picker-result', { players: selectedPlayers });
+      }, 10000);
+      callback?.({ success: true });
     });
 
     // Host ends the question (timer may still be running) and shows answer distribution
@@ -314,6 +357,7 @@ function sendNextQuestion(io, partyState) {
   const q = partyState.questions[partyState.currentQuestionIndex];
   const questionIndex = partyState.currentQuestionIndex;
 
+  partyState.previousRanks = partyState.currentQuestionIndex === 0 ? null : buildRankMap(partyState.players);
   partyState.questionStartTime = Date.now();
   clearTimeout(partyState.introTimer);
   partyState.questionExpired = false;
@@ -455,6 +499,7 @@ function scoreShotInTheDark(io, partyState, correctNumber, socket, callback) {
 
 function buildRoundResultsPayload(partyState, q) {
   const isLastQuestion = partyState.currentQuestionIndex === partyState.questions.length - 1;
+  const currentRanks = buildRankMap(partyState.players);
   return {
     gameType: q.game_type || 'trivia',
     correctAnswer: q.correct_answer,
@@ -462,12 +507,21 @@ function buildRoundResultsPayload(partyState, q) {
     correctNumber: q.correct_number,
     herdMode: q.herd_mode || 'most',
     simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
-    players: partyState.players,
+    players: partyState.players.map((player) => ({
+      ...player,
+      rankChange: partyState.previousRanks ? partyState.previousRanks.get(player.id) - currentRanks.get(player.id) : null
+    })),
     isLastQuestion,
     isFinalQuestionNext: !isLastQuestion && (partyState.currentQuestionIndex + 1 === partyState.questions.length - 1),
     nextQuestionNumber: partyState.currentQuestionIndex + 2,
     totalQuestions: partyState.questions.length
   };
+}
+
+function buildRankMap(players) {
+  return new Map([...players]
+    .sort((a, b) => b.score - a.score)
+    .map((player, index) => [player.id, index + 1]));
 }
 
 function showScores(io, partyState) {
@@ -512,12 +566,15 @@ function showFinalScores(io, partyState) {
 }
 
 function endGame(io, partyState) {
-  if (partyState.status !== 'game-over') return;
+  if (partyState.status !== 'game-over' && partyState.status !== 'picker-result') return;
   partyState.status = 'lobby';
   partyState.currentGameId = null;
   partyState.questions = [];
   partyState.currentQuestionIndex = 0;
   partyState.answersThisRound = {};
+  partyState.previousRanks = null;
+  partyState.pickerRun = null;
+  clearTimeout(partyState.pickerTimer);
   partyState.lastBreakdown = null;
   partyState.lastWinner = null;
   io.to("PARTY").emit('game-ended');

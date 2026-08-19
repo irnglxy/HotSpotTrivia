@@ -14,6 +14,9 @@ export default function DisplayScreen() {
   const [showWinnerName, setShowWinnerName] = useState(false);
   const [finalScores, setFinalScores] = useState([]);
   const [introTitle, setIntroTitle] = useState(null);
+  const [pickerPlayers, setPickerPlayers] = useState([]);
+  const [pickerRun, setPickerRun] = useState(null);
+  const [pickedPlayers, setPickedPlayers] = useState([]);
 
   useEffect(() => {
     // Tell server this is the big screen display
@@ -33,6 +36,9 @@ export default function DisplayScreen() {
       setStatus('lobby');
     });
     socket.on('game-intro', (data) => { setStatus('intro'); setIntroTitle(data.title); });
+    socket.on('player-picker-setup', () => setStatus('picker-setup'));
+    socket.on('player-picker-start', (data) => { setStatus('picker-selecting'); setPickerPlayers(data.players); setPickerRun(data); });
+    socket.on('player-picker-result', (data) => { setStatus('picker-result'); setPickedPlayers(data.players); });
 
     socket.on('next-question', (qData) => {
       setStatus('playing');
@@ -74,6 +80,9 @@ export default function DisplayScreen() {
       setRoundResults(null);
       setWinnerReveal(null);
       setFinalScores([]);
+      setPickerPlayers([]);
+      setPickerRun(null);
+      setPickedPlayers([]);
     });
     socket.on('room-closed', () => { setStatus('lobby'); setPlayers([]); });
 
@@ -83,6 +92,9 @@ export default function DisplayScreen() {
       socket.off('update-players');
       socket.off('game-loaded');
       socket.off('game-intro');
+      socket.off('player-picker-setup');
+      socket.off('player-picker-start');
+      socket.off('player-picker-result');
       socket.off('next-question');
       socket.off('answer-breakdown');
       socket.off('round-results');
@@ -92,6 +104,14 @@ export default function DisplayScreen() {
       socket.off('room-closed');
     };
   }, []);
+
+  useEffect(() => {
+    if (status !== 'picker-selecting' || !pickerRun) return;
+    const timers = pickerRun.eliminatedPlayerIds.map((playerId, index) => setTimeout(() => {
+      setPickerPlayers((current) => current.filter((player) => player.id !== playerId));
+    }, ((index + 1) * pickerRun.duration) / (pickerRun.eliminatedPlayerIds.length + 1)));
+    return () => timers.forEach(clearTimeout);
+  }, [status, pickerRun]);
 
   // Timer countdown effect for the big screen
   useEffect(() => {
@@ -165,6 +185,12 @@ export default function DisplayScreen() {
         )}
 
         {status === 'intro' && <div className="text-center py-24"><p className="text-purple-300 uppercase tracking-[0.3em] font-bold mb-6">Get ready for</p><h2 className="text-7xl font-black text-white">{introTitle}</h2></div>}
+
+        {status === 'picker-setup' && <div className="text-center py-24"><p className="text-fuchsia-300 uppercase tracking-[0.3em] font-bold mb-6">Player Picker</p><h2 className="text-6xl font-black text-white">Get Ready...</h2></div>}
+
+        {status === 'picker-selecting' && <div className="max-w-5xl mx-auto text-center"><p className="text-fuchsia-300 uppercase tracking-[0.3em] font-bold mb-6">Player Picker</p><h2 className="text-6xl font-black text-white mb-10">Who will remain?</h2><div className="flex flex-wrap justify-center gap-4">{pickerPlayers.map((player) => <div key={player.id} className="bg-zinc-900 border border-fuchsia-700 rounded-2xl px-6 py-5 text-2xl font-black text-white transition-all duration-700"><span className="text-4xl mr-3">{player.emoji}</span>{player.name}</div>)}</div></div>}
+
+        {status === 'picker-result' && <div className="max-w-5xl mx-auto text-center"><p className="text-fuchsia-300 uppercase tracking-[0.3em] font-bold mb-10">Selected Players</p><div className="flex flex-wrap justify-center gap-5">{pickedPlayers.map((player) => <div key={player.id} className="bg-fuchsia-950 border-2 border-fuchsia-400 rounded-3xl px-8 py-7 text-3xl font-black text-white shadow-2xl"><span className="text-5xl mr-4">{player.emoji}</span>{player.name}</div>)}</div></div>}
 
         {/* STATE 2: LIVE QUESTION BOARD */}
         {status === 'playing' && currentQuestion && (
@@ -320,12 +346,13 @@ export default function DisplayScreen() {
 
             <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-4">
               <h3 className="text-2xl font-bold text-white mb-6">Current Leaderboard</h3>
-              {roundResults.players
+              {[...roundResults.players]
                 .sort((a, b) => b.score - a.score)
                 .map((p, idx) => (
                   <div key={p.id} className="flex justify-between items-center bg-zinc-950 p-5 rounded-2xl border border-zinc-800 text-xl">
                     <div className="flex items-center gap-4">
                       <span className="font-black text-zinc-500 w-8 text-2xl">#{idx + 1}</span>
+                      {p.rankChange !== null && p.rankChange !== 0 && <span className={`font-black ${p.rankChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`} title={`${Math.abs(p.rankChange)} place${Math.abs(p.rankChange) === 1 ? '' : 's'} ${p.rankChange > 0 ? 'up' : 'down'}`}>{p.rankChange > 0 ? (p.rankChange > 10 ? '⇈' : '↑') : (p.rankChange < -10 ? '⇊' : '↓')}</span>}
                       <span className="text-3xl">{p.emoji}</span>
                       <span className="font-bold text-white">{p.name}</span>
                     </div>

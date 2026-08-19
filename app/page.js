@@ -9,6 +9,8 @@ const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
     ? { questionText: 'Who is telling the truth?', options: ['Player 1', 'Player 2'], correctAnswer: 'A', timeLimit: 15 }
     : gameType === 'simon-says'
       ? { questionText: '', options: [], simonSequence: [], timeLimit: 15 }
+      : gameType === 'player-picker'
+        ? { questionText: '', options: [], timeLimit: 15 }
     : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', herdMode: 'most', timeLimit: 15 };
 
 export default function MasterHostDashboard() {
@@ -39,6 +41,8 @@ export default function MasterHostDashboard() {
   const [gameType, setGameType] = useState('trivia');
   const [questions, setQuestions] = useState([newQuestion('trivia')]);
   const [correctNumber, setCorrectNumber] = useState('');
+  const [pickerCount, setPickerCount] = useState(1);
+  const [pickedPlayers, setPickedPlayers] = useState([]);
 
   const fetchGames = async () => {
     try {
@@ -98,6 +102,9 @@ export default function MasterHostDashboard() {
       setFinalScores([]);
     });
     socket.on('request-correct-number', (data) => { setCorrectNumber(data.correctNumber); setView('answer-entry'); });
+    socket.on('player-picker-setup', (data) => { setPickerCount(Math.min(1, data.totalPlayers)); setView('picker-setup'); });
+    socket.on('player-picker-start', () => setView('picker-selecting'));
+    socket.on('player-picker-result', (data) => { setPickedPlayers(data.players); setView('picker-result'); });
 
     return () => {
       socket.off('host-master-lobby');
@@ -113,6 +120,9 @@ export default function MasterHostDashboard() {
       socket.off('game-over');
       socket.off('game-ended');
       socket.off('request-correct-number');
+      socket.off('player-picker-setup');
+      socket.off('player-picker-start');
+      socket.off('player-picker-result');
     };
   }, [players.length]);
 
@@ -161,6 +171,7 @@ export default function MasterHostDashboard() {
   const showFinalScores = () => socket.emit('show-final-scores');
   const endGame = () => socket.emit('end-game');
   const nextQuestion = () => socket.emit('next-question-btn');
+  const startPlayerPicker = () => socket.emit('start-player-picker', { count: pickerCount }, (response) => { if (!response?.success) alert(response?.error || 'Could not start the picker.'); });
   const setSignupsOpenForNight = (open) => socket.emit('set-signups-open', { open }, (response) => { if (response?.success) setSignupsOpen(response.signupsOpen); });
   const scoreShotInTheDark = () => socket.emit('score-shot-in-the-dark', { correctNumber }, (response) => {
     if (!response?.success) {
@@ -377,7 +388,7 @@ export default function MasterHostDashboard() {
                   <div key={game.id} className="p-5 bg-zinc-900 border border-zinc-800 rounded-2xl flex justify-between items-center shadow-lg">
                     <div>
                       <h3 className="font-bold text-lg text-white">{game.title}</h3>
-                      <p className="text-sm text-zinc-400">{game.question_count} Questions <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${game.game_type === 'shot-in-the-dark' ? 'bg-purple-950 text-purple-300' : game.game_type === 'follow-the-herd' ? 'bg-amber-950 text-amber-300' : game.game_type === 'liar-liar' ? 'bg-rose-950 text-rose-300' : game.game_type === 'simon-says' ? 'bg-cyan-950 text-cyan-300' : 'bg-blue-950 text-blue-300'}`}>{game.game_type === 'shot-in-the-dark' ? 'Shot In The Dark' : game.game_type === 'follow-the-herd' ? 'Follow The Herd' : game.game_type === 'liar-liar' ? 'Liar Liar' : game.game_type === 'simon-says' ? 'Simon Says' : 'Trivia'}</span></p>
+                      <p className="text-sm text-zinc-400">{game.question_count} Questions <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${game.game_type === 'shot-in-the-dark' ? 'bg-purple-950 text-purple-300' : game.game_type === 'follow-the-herd' ? 'bg-amber-950 text-amber-300' : game.game_type === 'liar-liar' ? 'bg-rose-950 text-rose-300' : game.game_type === 'simon-says' ? 'bg-cyan-950 text-cyan-300' : game.game_type === 'player-picker' ? 'bg-fuchsia-950 text-fuchsia-300' : 'bg-blue-950 text-blue-300'}`}>{game.game_type === 'shot-in-the-dark' ? 'Shot In The Dark' : game.game_type === 'follow-the-herd' ? 'Follow The Herd' : game.game_type === 'liar-liar' ? 'Liar Liar' : game.game_type === 'simon-says' ? 'Simon Says' : game.game_type === 'player-picker' ? 'Player Picker' : 'Trivia'}</span></p>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex flex-col text-xs"><button onClick={() => moveGame(index, -1)} disabled={index === 0} className="disabled:opacity-30">▲</button><button onClick={() => moveGame(index, 1)} disabled={index === games.length - 1} className="disabled:opacity-30">▼</button></div>
@@ -460,6 +471,12 @@ export default function MasterHostDashboard() {
         )}
 
         {view === 'intro' && <div className="text-center py-24"><p className="text-purple-300 uppercase tracking-[0.3em] font-bold mb-5">Get ready for</p><h2 className="text-6xl font-black text-white mb-12">{introTitle}</h2><button onClick={beginFirstQuestion} className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xl px-8 py-4 rounded-2xl shadow-xl">Begin First Question 🎮</button></div>}
+
+        {view === 'picker-setup' && <div className="max-w-xl mx-auto text-center bg-zinc-900 border border-fuchsia-700 rounded-3xl p-8"><p className="text-fuchsia-300 font-bold uppercase tracking-widest mb-3">Player Picker</p><h2 className="text-3xl font-black text-white mb-3">How many players should remain?</h2><p className="text-zinc-400 mb-6">The display will eliminate everyone else randomly over 10 seconds.</p><input type="number" min="1" max={players.length} value={pickerCount} onChange={(e) => setPickerCount(Math.min(players.length, Math.max(1, Number(e.target.value) || 1)))} className="w-32 text-center text-4xl font-black p-3 bg-zinc-950 border border-zinc-700 rounded-xl text-white mb-6" /><p className="text-zinc-500 text-sm mb-6">from {players.length} players</p><button onClick={startPlayerPicker} className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-black px-8 py-4 rounded-2xl">Start the Picker 🎲</button></div>}
+
+        {view === 'picker-selecting' && <div className="text-center py-24"><p className="text-fuchsia-300 font-bold uppercase tracking-widest mb-5">Player Picker</p><h2 className="text-5xl font-black text-white">The display is choosing...</h2></div>}
+
+        {view === 'picker-result' && <div className="max-w-3xl mx-auto text-center"><p className="text-fuchsia-300 font-bold uppercase tracking-widest mb-4">Selected Players</p><div className="flex flex-wrap justify-center gap-4 mb-10">{pickedPlayers.map((player) => <div key={player.id} className="bg-zinc-900 border border-fuchsia-600 rounded-2xl px-6 py-5"><span className="text-4xl mr-3">{player.emoji}</span><span className="text-3xl font-black text-white">{player.name}</span></div>)}</div><button onClick={endGame} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 py-4 rounded-xl">End Picker &amp; Return to Lobby</button></div>}
 
         {/* VIEW 3: QUESTION BOARD WITH TIMER */}
         {view === 'question' && currentQuestion && (
@@ -630,12 +647,13 @@ export default function MasterHostDashboard() {
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl space-y-3 mb-8">
               <h2 className="text-xl font-bold text-white mb-4">Game Leaderboard</h2>
-              {roundResults.players
+              {[...roundResults.players]
                 .sort((a, b) => b.score - a.score)
                 .map((p, idx) => (
                   <div key={p.id} className="flex justify-between items-center bg-zinc-950 p-4 rounded-xl border border-zinc-800">
                     <div className="flex items-center gap-3">
                       <span className="font-bold text-zinc-500 w-6">#{idx + 1}</span>
+                      {p.rankChange !== null && p.rankChange !== 0 && <span className={`font-black ${p.rankChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`} title={`${Math.abs(p.rankChange)} place${Math.abs(p.rankChange) === 1 ? '' : 's'} ${p.rankChange > 0 ? 'up' : 'down'}`}>{p.rankChange > 0 ? (p.rankChange > 10 ? '⇈' : '↑') : (p.rankChange < -10 ? '⇊' : '↓')}</span>}
                       <span className="text-xl">{p.emoji}</span>
                       <span className="font-bold text-white">{p.name}</span>
                     </div>
@@ -736,7 +754,7 @@ export default function MasterHostDashboard() {
               />
               <label className="block text-zinc-300 font-semibold mt-4 mb-2">Game Type</label>
               <select value={gameType} onChange={(e) => { const type = e.target.value; setGameType(type); setQuestions([newQuestion(type)]); }} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white">
-                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option>
+                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option>
               </select>
             </div>
 
@@ -754,7 +772,7 @@ export default function MasterHostDashboard() {
                   )}
                 </div>
 
-                {gameType !== 'simon-says' && <input
+                {gameType !== 'simon-says' && gameType !== 'player-picker' && <input
                   type="text" 
                   placeholder="Type your question..."
                   className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 mb-4 focus:outline-none focus:border-purple-500"
@@ -762,7 +780,7 @@ export default function MasterHostDashboard() {
                   onChange={(e) => handleQuestionChange(qIndex, 'questionText', e.target.value)}
                 />}
 
-                {gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>Player 1</strong> or <strong>Player 2</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
+                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>Player 1</strong> or <strong>Player 2</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
                   {q.options.map((opt, optIndex) => {
                     const optLetter = ['A', 'B', 'C', 'D'][optIndex];
                     const badgeColors = { A: 'bg-red-500/20 text-red-400 border-red-500/30', B: 'bg-blue-500/20 text-blue-400 border-blue-500/30', C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', D: 'bg-green-500/20 text-green-400 border-green-500/30' };
@@ -788,8 +806,7 @@ export default function MasterHostDashboard() {
                 </div>}
 
                 <div className="flex gap-6 pt-4 border-t border-zinc-800">
-                  {(gameType === 'trivia' || gameType === 'liar-liar') &&
-                  <div>
+                  {(gameType === 'trivia' || gameType === 'liar-liar') && <div>
                     <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">{gameType === 'liar-liar' ? 'Who is telling the truth?' : 'Correct Answer'}</label>
                     <select 
                       className="p-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500 font-bold"
@@ -800,9 +817,7 @@ export default function MasterHostDashboard() {
                       <option value="B">{gameType === 'liar-liar' ? 'Player 2' : 'Option B'}</option>
                       {gameType === 'trivia' && <><option value="C">Option C</option><option value="D">Option D</option></>}
                     </select>
-                  </div>
-                  }
-
+                  </div>}
                   {gameType === 'follow-the-herd' && <div>
                     <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Herd Scoring</label>
                     <select className="p-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500 font-bold" value={q.herdMode || 'most'} onChange={(e) => handleQuestionChange(qIndex, 'herdMode', e.target.value)}>
@@ -811,7 +826,7 @@ export default function MasterHostDashboard() {
                     </select>
                   </div>}
 
-                  <div>
+                  {gameType !== 'player-picker' && <div>
                     <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Time Limit (sec)</label>
                     <input 
                       type="number" 
@@ -819,7 +834,7 @@ export default function MasterHostDashboard() {
                       value={q.timeLimit}
                       onChange={(e) => handleQuestionChange(qIndex, 'timeLimit', Number(e.target.value))}
                     />
-                  </div>
+                  </div>}
                 </div>
 
               </div>
