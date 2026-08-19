@@ -32,9 +32,11 @@ export default function PlayPage() {
   const [guessValue, setGuessValue] = useState(null);
   const [podiumPlace, setPodiumPlace] = useState(null);
   const [showPodiumPlace, setShowPodiumPlace] = useState(false);
+  const [introTitle, setIntroTitle] = useState(null);
 
   useEffect(() => {
     socket.on('next-question', (qData) => {
+      setIntroTitle(null);
       setGameStarted(true);
       setCurrentQuestion(qData);
       setAnswered(false);
@@ -43,6 +45,7 @@ export default function PlayPage() {
       setPodiumPlace(null);
       setShowPodiumPlace(false);
     });
+    socket.on('game-intro', (data) => { setGameStarted(true); setCurrentQuestion(null); setIntroTitle(data.title); });
 
     socket.on('answer-breakdown', () => {
       setAnswered(true);
@@ -80,6 +83,7 @@ export default function PlayPage() {
 
     return () => {
       socket.off('next-question');
+      socket.off('game-intro');
       socket.off('answer-breakdown');
       socket.off('question-time-up');
       socket.off('winner-reveal');
@@ -280,9 +284,11 @@ export default function PlayPage() {
             ✓
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">You&apos;re in the Party!</h2>
-          <p className="text-zinc-400 text-sm">Sit tight! The host will launch the next game from the main screen shortly.</p>
+          <p className="text-zinc-400 text-sm">Sit tight! Deven and Ned will launch the next game shortly.</p>
         </div>
       )}
+
+      {joined && !isEditingName && introTitle && <div className="text-center my-auto p-8 bg-zinc-900 border border-purple-700 rounded-3xl mx-auto max-w-md w-full"><p className="text-purple-300 uppercase tracking-[0.25em] font-bold mb-4">Get ready for</p><h2 className="text-4xl font-black text-white">{introTitle}</h2></div>}
 
       {/* 3. QUESTION + ANSWER BUTTONS */}
       {joined && !isEditingName && gameStarted && currentQuestion && !podiumPlace && (

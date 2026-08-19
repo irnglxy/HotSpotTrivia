@@ -25,6 +25,7 @@ ensureColumn('questions', 'correct_number', 'REAL');
 ensureColumn('questions', 'answer_min', 'REAL');
 ensureColumn('questions', 'answer_max', 'REAL');
 ensureColumn('questions', 'answer_step', 'REAL');
+ensureColumn('questions', 'herd_mode', "TEXT DEFAULT 'most'");
 
 app.prepare().then(() => {
   const httpServer = createServer(handler);
@@ -41,6 +42,8 @@ app.prepare().then(() => {
     players: [], // { id, name, emoji, color, score }
     status: 'lobby', // 'lobby', 'playing', 'results', 'game-over'
     currentGameId: null,
+    gameTitle: null,
+    introTimer: null,
     questions: [],
     currentQuestionIndex: 0,
     questionStartTime: null,
@@ -66,6 +69,8 @@ app.prepare().then(() => {
       if (partyState.status === 'playing' && partyState.questions.length > 0) {
         const q = partyState.questions[partyState.currentQuestionIndex];
         socket.emit('next-question', buildQuestionPayload(partyState, q));
+      } else if (partyState.status === 'intro') {
+        socket.emit('game-intro', { title: partyState.gameTitle, gameType: partyState.questions[0]?.game_type || 'trivia' });
       } else if (partyState.status === 'answer-reveal' && partyState.lastBreakdown) {
         socket.emit('answer-breakdown', partyState.lastBreakdown);
       } else if (partyState.status === 'results' && partyState.questions.length > 0) {
@@ -162,6 +167,7 @@ app.prepare().then(() => {
     // Host selects a game and loads questions, resetting scores for this new game
     socket.on('load-game', ({ gameId }) => {
       partyState.currentGameId = gameId;
+      partyState.gameTitle = db.prepare('SELECT title FROM games WHERE id = ?').get(gameId)?.title || 'Next Round';
       
       // Reset all player scores to 0 for this standalone game
       partyState.players.forEach(p => p.score = 0);
@@ -181,8 +187,14 @@ app.prepare().then(() => {
     // Host clicks "Start Game"
     socket.on('start-game', () => {
       if (partyState.questions.length === 0) return;
-      partyState.status = 'playing';
+      partyState.status = 'intro';
       partyState.currentQuestionIndex = 0;
+      io.to(MASTER_ROOM).emit('game-intro', { title: partyState.gameTitle, gameType: partyState.questions[0].game_type || 'trivia' });
+    });
+
+    socket.on('begin-first-question', () => {
+      if (socket.id !== partyState.hostId || partyState.status !== 'intro') return;
+      partyState.status = 'playing';
       sendNextQuestion(io, partyState);
     });
 
@@ -233,18 +245,19 @@ app.prepare().then(() => {
 
       const q = partyState.questions[partyState.currentQuestionIndex];
       const isShotInTheDark = q.game_type === 'shot-in-the-dark';
+      const isFollowTheHerd = q.game_type === 'follow-the-herd';
       const numericAnswer = Number(answer);
       if (isShotInTheDark && (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max)) return;
 
       const timeTaken = (Date.now() - partyState.questionStartTime) / 1000;
       const timeLimit = q.time_limit || 30;
-      const isCorrect = !isShotInTheDark && answer === q.correct_answer;
+      const isCorrect = !isShotInTheDark && !isFollowTheHerd && answer === q.correct_answer;
       const pointsEarned = isCorrect ? Math.round(500 + (500 * Math.max(0, 1 - (timeTaken / timeLimit)))) : 0;
 
-      partyState.answersThisRound[socket.id] = { answer: isShotInTheDark ? numericAnswer : answer, isCorrect, pointsEarned };
+      partyState.answersThisRound[socket.id] = { answer: isShotInTheDark ? numericAnswer : answer, isCorrect, pointsEarned, timeTaken };
 
       const player = partyState.players.find(p => p.id === socket.id);
-      if (player && !isShotInTheDark) {
+      if (player && !isShotInTheDark && !isFollowTheHerd) {
         player.score += pointsEarned;
       }
 
@@ -279,6 +292,7 @@ function buildQuestionPayload(partyState, q) {
     answerMin: q.answer_min,
     answerMax: q.answer_max,
     answerStep: q.answer_step,
+    herdMode: q.herd_mode || 'most',
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
@@ -289,6 +303,7 @@ function sendNextQuestion(io, partyState) {
   const questionIndex = partyState.currentQuestionIndex;
 
   partyState.questionStartTime = Date.now();
+  clearTimeout(partyState.introTimer);
   partyState.questionExpired = false;
   clearTimeout(partyState.questionTimer);
   partyState.answersThisRound = {};
@@ -325,13 +340,39 @@ function revealAnswers(io, partyState) {
     if (counts[entry.answer] !== undefined) counts[entry.answer]++;
   });
 
+  const isFollowTheHerd = q.game_type === 'follow-the-herd';
+  const herdMode = q.herd_mode === 'least' ? 'least' : 'most';
+  let winningAnswers = [];
+  if (isFollowTheHerd) {
+    const selectedCounts = Object.entries(counts).filter(([, count]) => count > 0);
+    if (selectedCounts.length > 0) {
+      const targetCount = herdMode === 'least'
+        ? Math.min(...selectedCounts.map(([, count]) => count))
+        : Math.max(...selectedCounts.map(([, count]) => count));
+      winningAnswers = selectedCounts
+        .filter(([, count]) => count === targetCount)
+        .map(([answer]) => answer);
+
+      Object.entries(partyState.answersThisRound).forEach(([playerId, entry]) => {
+        if (!winningAnswers.includes(entry.answer)) return;
+        const pointsEarned = Math.round(500 + (500 * Math.max(0, 1 - (entry.timeTaken / (q.time_limit || 15)))));
+        entry.pointsEarned = pointsEarned;
+        const player = partyState.players.find((candidate) => candidate.id === playerId);
+        if (player) player.score += pointsEarned;
+      });
+    }
+  }
+
   const payload = {
+    gameType: q.game_type || 'trivia',
     questionText: q.question_text,
     options: [q.option_a, q.option_b, q.option_c, q.option_d],
     counts,
     totalAnswers: Object.keys(partyState.answersThisRound).length,
     totalPlayers: partyState.players.length,
     correctAnswer: q.correct_answer,
+    herdMode,
+    winningAnswers,
     questionNumber: partyState.currentQuestionIndex + 1,
     totalQuestions: partyState.questions.length,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
@@ -390,6 +431,7 @@ function buildRoundResultsPayload(partyState, q) {
     gameType: q.game_type || 'trivia',
     correctAnswer: q.correct_answer,
     correctNumber: q.correct_number,
+    herdMode: q.herd_mode || 'most',
     players: partyState.players,
     isLastQuestion,
     isFinalQuestionNext: !isLastQuestion && (partyState.currentQuestionIndex + 1 === partyState.questions.length - 1),

@@ -13,6 +13,7 @@ export default function DisplayScreen() {
   const [winnerReveal, setWinnerReveal] = useState(null);
   const [showWinnerName, setShowWinnerName] = useState(false);
   const [finalScores, setFinalScores] = useState([]);
+  const [introTitle, setIntroTitle] = useState(null);
 
   useEffect(() => {
     // Tell server this is the big screen display
@@ -31,9 +32,11 @@ export default function DisplayScreen() {
       setPlayers(data.players);
       setStatus('lobby');
     });
+    socket.on('game-intro', (data) => { setStatus('intro'); setIntroTitle(data.title); });
 
     socket.on('next-question', (qData) => {
       setStatus('playing');
+      setIntroTitle(null);
       setCurrentQuestion(qData);
       setTimeLeft(qData.timeLimit || 15);
       setAnswerBreakdown(null);
@@ -79,6 +82,7 @@ export default function DisplayScreen() {
       socket.off('master-update');
       socket.off('update-players');
       socket.off('game-loaded');
+      socket.off('game-intro');
       socket.off('next-question');
       socket.off('answer-breakdown');
       socket.off('round-results');
@@ -129,7 +133,7 @@ export default function DisplayScreen() {
               <span className="bg-purple-950/80 border border-purple-700 text-purple-300 px-6 py-2 rounded-full text-lg font-bold uppercase tracking-widest inline-block animate-pulse">
                 Welcome to the Party!
               </span>
-              <h2 className="text-6xl font-black tracking-tight text-white">HOT SPOT TRIVIA</h2>
+              <h2 className="text-6xl font-black tracking-tight text-white">GAME NIGHT</h2>
               <p className="text-zinc-400 text-xl">Head to <span className="text-emerald-400 font-mono underline">/play</span> and log in with your name and emoji.</p>
             </div>
 
@@ -159,6 +163,8 @@ export default function DisplayScreen() {
             </div>
           </div>
         )}
+
+        {status === 'intro' && <div className="text-center py-24"><p className="text-purple-300 uppercase tracking-[0.3em] font-bold mb-6">Get ready for</p><h2 className="text-7xl font-black text-white">{introTitle}</h2></div>}
 
         {/* STATE 2: LIVE QUESTION BOARD */}
         {status === 'playing' && currentQuestion && (
@@ -236,7 +242,7 @@ export default function DisplayScreen() {
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl text-center">
-              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-2">How the room voted</p>
+              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-2">{answerBreakdown.gameType === 'follow-the-herd' ? `Follow The Herd • ${answerBreakdown.herdMode === 'least' ? 'Least popular selected answer scores' : 'Most popular answer scores'}` : 'How the room voted'}</p>
               <h2 className="text-2xl md:text-3xl font-black text-white leading-tight">
                 {answerBreakdown.questionText}
               </h2>
@@ -247,7 +253,9 @@ export default function DisplayScreen() {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const count = answerBreakdown.counts[optLetter] || 0;
                 const pct = answerBreakdown.totalAnswers === 0 ? 0 : Math.round((count / answerBreakdown.totalAnswers) * 100);
+                const isFollowTheHerd = answerBreakdown.gameType === 'follow-the-herd';
                 const isCorrect = answerBreakdown.correctAnswer === optLetter;
+                const scores = isFollowTheHerd && answerBreakdown.winningAnswers?.includes(optLetter);
                 const barColors = {
                   A: 'bg-red-600',
                   B: 'bg-blue-600',
@@ -258,7 +266,7 @@ export default function DisplayScreen() {
                 return (
                   <div
                     key={idx}
-                    className={`bg-zinc-900 border p-4 rounded-3xl ${isCorrect ? 'border-emerald-400 shadow-lg shadow-emerald-500/10' : 'border-zinc-800'}`}
+                    className={`bg-zinc-900 border p-4 rounded-3xl ${isFollowTheHerd ? (scores ? 'border-emerald-400 shadow-lg shadow-emerald-500/10' : 'border-zinc-800') : isCorrect ? 'border-emerald-400 shadow-lg shadow-emerald-500/10' : 'border-zinc-800'}`}
                   >
                     <div className="flex justify-between items-center mb-2 gap-3">
                       <div className="flex items-center gap-3 min-w-0">
@@ -266,7 +274,9 @@ export default function DisplayScreen() {
                           {optLetter}
                         </span>
                         <span className="text-xl font-bold text-white truncate">{optText}</span>
-                        {isCorrect && (
+                        {isFollowTheHerd ? scores && (
+                          <span className="shrink-0 text-sm font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950 border border-emerald-700 px-3 py-1 rounded-full">Scores</span>
+                        ) : isCorrect && (
                           <span className="shrink-0 text-sm font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950 border border-emerald-700 px-3 py-1 rounded-full">
                             Correct
                           </span>
@@ -294,7 +304,7 @@ export default function DisplayScreen() {
           <div className="max-w-3xl mx-auto text-center space-y-8">
             <div className="space-y-2">
               <h2 className="text-5xl font-black text-purple-400">Round Complete!</h2>
-              {roundResults.gameType !== 'shot-in-the-dark' && <p className="text-zinc-400 text-2xl">Correct Answer was: <span className="text-emerald-400 font-extrabold text-3xl">[{roundResults.correctAnswer}]</span></p>}
+              {roundResults.gameType === 'trivia' && <p className="text-zinc-400 text-2xl">Correct Answer was: <span className="text-emerald-400 font-extrabold text-3xl">[{roundResults.correctAnswer}]</span></p>}
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-4">

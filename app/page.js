@@ -5,7 +5,7 @@ import { socket } from '@/lib/socket';
 
 const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
   ? { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', correctNumber: '', answerMin: 0, answerMax: 100, answerStep: 1, timeLimit: 30 }
-  : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', timeLimit: 15 };
+  : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', herdMode: 'most', timeLimit: 15 };
 
 export default function MasterHostDashboard() {
   const [view, setView] = useState('library'); // 'library', 'lobby', 'question', 'answer-reveal', 'results', 'winner-reveal', 'game-over', 'builder'
@@ -27,6 +27,7 @@ export default function MasterHostDashboard() {
   const [winnerReveal, setWinnerReveal] = useState(null);
   const [showWinnerName, setShowWinnerName] = useState(false);
   const [finalScores, setFinalScores] = useState([]);
+  const [introTitle, setIntroTitle] = useState(null);
 
   // Builder State
   const [editingGameId, setEditingGameId] = useState(null);
@@ -56,8 +57,10 @@ export default function MasterHostDashboard() {
       setPlayers(data.players);
       setView('lobby');
     });
+    socket.on('game-intro', (data) => { setIntroTitle(data.title); setView('intro'); });
     socket.on('next-question', (qData) => {
       setView('question');
+      setIntroTitle(null);
       setCurrentQuestion(qData);
       setTimeLeft(qData.timeLimit || 15);
       setAnswerStats({ totalAnswers: 0, totalPlayers: players.length });
@@ -97,6 +100,7 @@ export default function MasterHostDashboard() {
       socket.off('master-update');
       socket.off('update-players');
       socket.off('game-loaded');
+      socket.off('game-intro');
       socket.off('next-question');
       socket.off('player-answered-update');
       socket.off('answer-breakdown');
@@ -146,6 +150,7 @@ export default function MasterHostDashboard() {
   };
 
   const startGame = () => socket.emit('start-game');
+  const beginFirstQuestion = () => socket.emit('begin-first-question');
   const revealAnswers = () => socket.emit('reveal-answers');
   const showScores = () => socket.emit('show-scores');
   const revealWinner = () => socket.emit('reveal-winner');
@@ -364,7 +369,7 @@ export default function MasterHostDashboard() {
                   <div key={game.id} className="p-5 bg-zinc-900 border border-zinc-800 rounded-2xl flex justify-between items-center shadow-lg">
                     <div>
                       <h3 className="font-bold text-lg text-white">{game.title}</h3>
-                      <p className="text-sm text-zinc-400">{game.question_count} Questions <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${game.game_type === 'shot-in-the-dark' ? 'bg-purple-950 text-purple-300' : 'bg-blue-950 text-blue-300'}`}>{game.game_type === 'shot-in-the-dark' ? 'Shot In The Dark' : 'Trivia'}</span></p>
+                      <p className="text-sm text-zinc-400">{game.question_count} Questions <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${game.game_type === 'shot-in-the-dark' ? 'bg-purple-950 text-purple-300' : game.game_type === 'follow-the-herd' ? 'bg-amber-950 text-amber-300' : 'bg-blue-950 text-blue-300'}`}>{game.game_type === 'shot-in-the-dark' ? 'Shot In The Dark' : game.game_type === 'follow-the-herd' ? 'Follow The Herd' : 'Trivia'}</span></p>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex flex-col text-xs"><button onClick={() => moveGame(index, -1)} disabled={index === 0} className="disabled:opacity-30">▲</button><button onClick={() => moveGame(index, 1)} disabled={index === games.length - 1} className="disabled:opacity-30">▼</button></div>
@@ -445,6 +450,8 @@ export default function MasterHostDashboard() {
             </div>
           </div>
         )}
+
+        {view === 'intro' && <div className="text-center py-24"><p className="text-purple-300 uppercase tracking-[0.3em] font-bold mb-5">Get ready for</p><h2 className="text-6xl font-black text-white mb-12">{introTitle}</h2><button onClick={beginFirstQuestion} className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xl px-8 py-4 rounded-2xl shadow-xl">Begin First Question 🎮</button></div>}
 
         {/* VIEW 3: QUESTION BOARD WITH TIMER */}
         {view === 'question' && currentQuestion && (
@@ -534,20 +541,22 @@ export default function MasterHostDashboard() {
             </div>
 
             <h2 className="text-2xl font-black text-white mb-2">{answerBreakdown.questionText}</h2>
-            <p className="text-purple-300 font-semibold mb-6">How the room voted</p>
+            <p className="text-purple-300 font-semibold mb-6">{answerBreakdown.gameType === 'follow-the-herd' ? `Follow The Herd • ${answerBreakdown.herdMode === 'least' ? 'Least popular selected answer scores' : 'Most popular answer scores'}` : 'How the room voted'}</p>
 
             <div className="space-y-3 mb-8">
               {answerBreakdown.options.map((optText, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const count = answerBreakdown.counts[optLetter] || 0;
                 const pct = answerBreakdown.totalAnswers === 0 ? 0 : Math.round((count / answerBreakdown.totalAnswers) * 100);
+                const isFollowTheHerd = answerBreakdown.gameType === 'follow-the-herd';
                 const isCorrect = answerBreakdown.correctAnswer === optLetter;
+                const scores = isFollowTheHerd && answerBreakdown.winningAnswers?.includes(optLetter);
                 const barColors = { A: 'bg-red-600', B: 'bg-blue-600', C: 'bg-yellow-600', D: 'bg-green-600' };
 
                 return (
                   <div
                     key={idx}
-                    className={`bg-zinc-900 border p-4 rounded-2xl ${isCorrect ? 'border-emerald-400' : 'border-zinc-800'}`}
+                    className={`bg-zinc-900 border p-4 rounded-2xl ${isFollowTheHerd ? (scores ? 'border-emerald-400' : 'border-zinc-800') : isCorrect ? 'border-emerald-400' : 'border-zinc-800'}`}
                   >
                     <div className="flex justify-between items-center mb-2 gap-3">
                       <div className="flex items-center gap-3 min-w-0">
@@ -555,7 +564,7 @@ export default function MasterHostDashboard() {
                           {optLetter}
                         </span>
                         <span className="font-bold text-white truncate">{optText}</span>
-                        {isCorrect && <span className="text-xs font-bold uppercase text-emerald-400 shrink-0">Correct</span>}
+                        {isFollowTheHerd ? scores && <span className="text-xs font-bold uppercase text-emerald-400 shrink-0">Scores</span> : isCorrect && <span className="text-xs font-bold uppercase text-emerald-400 shrink-0">Correct</span>}
                       </div>
                       <span className="font-mono font-black text-white shrink-0">{count} ({pct}%)</span>
                     </div>
@@ -597,7 +606,7 @@ export default function MasterHostDashboard() {
             )}
 
             <h1 className="text-3xl font-extrabold text-purple-400 mb-2">Round Results</h1>
-            {roundResults.gameType !== 'shot-in-the-dark' && <p className="text-zinc-400 mb-6">Correct Answer was: <span className="text-emerald-400 font-bold text-2xl">[{roundResults.correctAnswer}]</span></p>}
+            {roundResults.gameType === 'trivia' && <p className="text-zinc-400 mb-6">Correct Answer was: <span className="text-emerald-400 font-bold text-2xl">[{roundResults.correctAnswer}]</span></p>}
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl space-y-3 mb-8">
               <h2 className="text-xl font-bold text-white mb-4">Game Leaderboard</h2>
@@ -707,7 +716,7 @@ export default function MasterHostDashboard() {
               />
               <label className="block text-zinc-300 font-semibold mt-4 mb-2">Game Type</label>
               <select value={gameType} onChange={(e) => { const type = e.target.value; setGameType(type); setQuestions([newQuestion(type)]); }} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white">
-                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option>
+                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option>
               </select>
             </div>
 
@@ -733,7 +742,7 @@ export default function MasterHostDashboard() {
                   onChange={(e) => handleQuestionChange(qIndex, 'questionText', e.target.value)}
                 />
 
-                {gameType === 'trivia' ? <div className="space-y-3 mb-4">
+                {gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
                   {q.options.map((opt, optIndex) => {
                     const optLetter = ['A', 'B', 'C', 'D'][optIndex];
                     const badgeColors = { A: 'bg-red-500/20 text-red-400 border-red-500/30', B: 'bg-blue-500/20 text-blue-400 border-blue-500/30', C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', D: 'bg-green-500/20 text-green-400 border-green-500/30' };
@@ -774,6 +783,14 @@ export default function MasterHostDashboard() {
                     </select>
                   </div>
                   }
+
+                  {gameType === 'follow-the-herd' && <div>
+                    <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Herd Scoring</label>
+                    <select className="p-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500 font-bold" value={q.herdMode || 'most'} onChange={(e) => handleQuestionChange(qIndex, 'herdMode', e.target.value)}>
+                      <option value="most">Most popular answer scores</option>
+                      <option value="least">Least popular answer scores</option>
+                    </select>
+                  </div>}
 
                   <div>
                     <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Time Limit (sec)</label>
