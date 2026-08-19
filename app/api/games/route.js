@@ -17,8 +17,8 @@ export async function POST(request) {
     const gameId = gameResult.lastInsertRowid;
 
     const insertQuestion = db.prepare(`
-      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, time_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, time_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((qs) => {
@@ -36,6 +36,7 @@ export async function POST(request) {
           q.answerMax ?? null,
           q.answerStep ?? null,
           q.herdMode === 'least' ? 'least' : 'most',
+          Array.isArray(q.simonSequence) ? JSON.stringify(q.simonSequence) : null,
           q.timeLimit || 15
         );
       }
@@ -77,6 +78,7 @@ export async function GET(request) {
         answerMax: q.answer_max ?? 100,
         answerStep: q.answer_step ?? 1,
         herdMode: q.herd_mode || 'most',
+        simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
         timeLimit: q.time_limit
       }));
 
@@ -137,8 +139,8 @@ export async function PUT(request) {
     db.prepare(`DELETE FROM questions WHERE game_id = ?`).run(id);
 
     const insertQuestion = db.prepare(`
-      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, time_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, time_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((qs) => {
@@ -156,6 +158,7 @@ export async function PUT(request) {
           q.answerMax ?? null,
           q.answerStep ?? null,
           q.herdMode === 'least' ? 'least' : 'most',
+          Array.isArray(q.simonSequence) ? JSON.stringify(q.simonSequence) : null,
           q.timeLimit || 15
         );
       }

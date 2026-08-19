@@ -181,19 +181,19 @@ export default function DisplayScreen() {
             </div>
 
             {/* Question Card */}
-            <div className="bg-zinc-900 border border-zinc-800 p-12 rounded-3xl shadow-2xl text-center">
+            {currentQuestion.gameType !== 'simon-says' && <div className="bg-zinc-900 border border-zinc-800 p-12 rounded-3xl shadow-2xl text-center">
               <h2 className="text-5xl md:text-6xl font-black text-white leading-tight">
                 {currentQuestion.questionText}
               </h2>
-            </div>
+            </div>}
 
-            {currentQuestion.gameType === 'shot-in-the-dark' ? (
+            {currentQuestion.gameType === 'simon-says' ? <div className="bg-cyan-950/50 border border-cyan-700 rounded-3xl p-8 text-center"><p className="text-4xl font-black text-cyan-200">Simon Says</p><p className="text-zinc-400 mt-3 text-xl">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
               <div className="bg-purple-950/50 border border-purple-700 rounded-3xl p-8 text-center">
                 <p className="text-3xl font-black text-purple-200">Shot In The Dark</p>
                 <p className="text-zinc-400 mt-3 text-xl">Make your best estimate between {currentQuestion.answerMin} and {currentQuestion.answerMax}</p>
               </div>
             ) : <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {currentQuestion.options.map((optText, idx) => {
+              {currentQuestion.options.slice(0, currentQuestion.gameType === 'liar-liar' ? 2 : 4).map((optText, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const optColors = {
                   A: 'bg-red-600 border-red-500',
@@ -230,7 +230,16 @@ export default function DisplayScreen() {
           </div>
         )}
 
-        {status === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && (
+        {status === 'answer-reveal' && answerBreakdown?.gameType === 'simon-says' && (
+          <div className="max-w-4xl mx-auto text-center space-y-6">
+            <p className="text-cyan-300 font-bold uppercase tracking-widest">Simon Says</p>
+            <h2 className="text-4xl font-black text-white">Correct sequence</h2>
+            <div className="flex flex-wrap justify-center gap-4 bg-zinc-900 border border-zinc-800 rounded-3xl p-8">{answerBreakdown.simonSequence.map((color, index) => <span key={index} className={`w-20 h-20 rounded-2xl shadow-xl ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={color} />)}</div>
+            <p className="text-zinc-400 font-mono">{answerBreakdown.totalAnswers} / {answerBreakdown.totalPlayers} players completed a sequence</p>
+          </div>
+        )}
+
+        {status === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && (
           <div className="w-full space-y-8">
             <div className="flex justify-between items-center">
               <span className="text-zinc-400 font-bold text-xl uppercase tracking-widest">
@@ -242,19 +251,20 @@ export default function DisplayScreen() {
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl text-center">
-              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-2">{answerBreakdown.gameType === 'follow-the-herd' ? `Follow The Herd • ${answerBreakdown.herdMode === 'least' ? 'Least popular selected answer scores' : 'Most popular answer scores'}` : 'How the room voted'}</p>
+              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-2">{answerBreakdown.gameType === 'follow-the-herd' ? `Follow The Herd • ${answerBreakdown.herdMode === 'least' ? 'Least popular selected answer scores' : 'Most popular answer scores'}` : answerBreakdown.gameType === 'liar-liar' ? 'Who did the room believe?' : 'How the room voted'}</p>
               <h2 className="text-2xl md:text-3xl font-black text-white leading-tight">
                 {answerBreakdown.questionText}
               </h2>
             </div>
 
             <div className="space-y-3">
-              {answerBreakdown.options.map((optText, idx) => {
+              {answerBreakdown.options.slice(0, answerBreakdown.gameType === 'liar-liar' ? 2 : 4).map((optText, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const count = answerBreakdown.counts[optLetter] || 0;
                 const pct = answerBreakdown.totalAnswers === 0 ? 0 : Math.round((count / answerBreakdown.totalAnswers) * 100);
                 const isFollowTheHerd = answerBreakdown.gameType === 'follow-the-herd';
-                const isCorrect = answerBreakdown.correctAnswer === optLetter;
+                const isLiarLiar = answerBreakdown.gameType === 'liar-liar';
+                const isCorrect = !isLiarLiar && answerBreakdown.correctAnswer === optLetter;
                 const scores = isFollowTheHerd && answerBreakdown.winningAnswers?.includes(optLetter);
                 const barColors = {
                   A: 'bg-red-600',
@@ -305,6 +315,7 @@ export default function DisplayScreen() {
             <div className="space-y-2">
               <h2 className="text-5xl font-black text-purple-400">Round Complete!</h2>
               {roundResults.gameType === 'trivia' && <p className="text-zinc-400 text-2xl">Correct Answer was: <span className="text-emerald-400 font-extrabold text-3xl">[{roundResults.correctAnswer}]</span></p>}
+              {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 text-2xl">Telling the truth: <span className="text-emerald-400 font-extrabold text-3xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-4">

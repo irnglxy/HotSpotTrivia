@@ -26,6 +26,7 @@ ensureColumn('questions', 'answer_min', 'REAL');
 ensureColumn('questions', 'answer_max', 'REAL');
 ensureColumn('questions', 'answer_step', 'REAL');
 ensureColumn('questions', 'herd_mode', "TEXT DEFAULT 'most'");
+ensureColumn('questions', 'simon_sequence', 'TEXT');
 
 app.prepare().then(() => {
   const httpServer = createServer(handler);
@@ -246,13 +247,23 @@ app.prepare().then(() => {
       const q = partyState.questions[partyState.currentQuestionIndex];
       const isShotInTheDark = q.game_type === 'shot-in-the-dark';
       const isFollowTheHerd = q.game_type === 'follow-the-herd';
+      const isSimonSays = q.game_type === 'simon-says';
       const numericAnswer = Number(answer);
       if (isShotInTheDark && (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max)) return;
+      const simonSequence = isSimonSays ? JSON.parse(q.simon_sequence || '[]') : [];
+      if (isSimonSays && (!Array.isArray(answer) || simonSequence.length === 0 || answer.length !== simonSequence.length || answer.some((color) => !['red', 'green', 'blue', 'orange'].includes(color)))) return;
 
       const timeTaken = (Date.now() - partyState.questionStartTime) / 1000;
       const timeLimit = q.time_limit || 30;
-      const isCorrect = !isShotInTheDark && !isFollowTheHerd && answer === q.correct_answer;
-      const pointsEarned = isCorrect ? Math.round(500 + (500 * Math.max(0, 1 - (timeTaken / timeLimit)))) : 0;
+      const isCorrect = isSimonSays
+        ? answer.every((color, index) => color === simonSequence[index])
+        : !isShotInTheDark && !isFollowTheHerd && answer === q.correct_answer;
+      const correctSimonColors = isSimonSays
+        ? answer.filter((color, index) => color === simonSequence[index]).length
+        : 0;
+      const pointsEarned = isSimonSays
+        ? (correctSimonColors * 50) + (isCorrect ? 250 + Math.round(250 * Math.max(0, 1 - (timeTaken / timeLimit))) : 0)
+        : isCorrect ? Math.round(500 + (500 * Math.max(0, 1 - (timeTaken / timeLimit)))) : 0;
 
       partyState.answersThisRound[socket.id] = { answer: isShotInTheDark ? numericAnswer : answer, isCorrect, pointsEarned, timeTaken };
 
@@ -293,6 +304,7 @@ function buildQuestionPayload(partyState, q) {
     answerMax: q.answer_max,
     answerStep: q.answer_step,
     herdMode: q.herd_mode || 'most',
+    simonSequenceLength: q.game_type === 'simon-says' ? JSON.parse(q.simon_sequence || '[]').length : undefined,
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
@@ -331,6 +343,22 @@ function revealAnswers(io, partyState) {
       questionText: q.question_text,
       correctNumber: q.correct_number ?? ''
     });
+    return;
+  }
+
+  if (q.game_type === 'simon-says') {
+    partyState.status = 'answer-reveal';
+    const payload = {
+      gameType: 'simon-says',
+      simonSequence: JSON.parse(q.simon_sequence || '[]'),
+      totalAnswers: Object.keys(partyState.answersThisRound).length,
+      totalPlayers: partyState.players.length,
+      questionNumber: partyState.currentQuestionIndex + 1,
+      totalQuestions: partyState.questions.length,
+      isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+    };
+    partyState.lastBreakdown = payload;
+    io.to('PARTY').emit('answer-breakdown', payload);
     return;
   }
 
@@ -430,8 +458,10 @@ function buildRoundResultsPayload(partyState, q) {
   return {
     gameType: q.game_type || 'trivia',
     correctAnswer: q.correct_answer,
+    options: [q.option_a, q.option_b, q.option_c, q.option_d],
     correctNumber: q.correct_number,
     herdMode: q.herd_mode || 'most',
+    simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
     players: partyState.players,
     isLastQuestion,
     isFinalQuestionNext: !isLastQuestion && (partyState.currentQuestionIndex + 1 === partyState.questions.length - 1),

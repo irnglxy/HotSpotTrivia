@@ -30,6 +30,7 @@ export default function PlayPage() {
   const [answered, setAnswered] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [guessValue, setGuessValue] = useState(null);
+  const [simonInput, setSimonInput] = useState([]);
   const [podiumPlace, setPodiumPlace] = useState(null);
   const [showPodiumPlace, setShowPodiumPlace] = useState(false);
   const [introTitle, setIntroTitle] = useState(null);
@@ -42,6 +43,7 @@ export default function PlayPage() {
       setAnswered(false);
       setSelectedAnswer(null);
       setGuessValue(qData.gameType === 'shot-in-the-dark' ? Number(qData.answerMin) : null);
+      setSimonInput([]);
       setPodiumPlace(null);
       setShowPodiumPlace(false);
     });
@@ -165,9 +167,21 @@ export default function PlayPage() {
   };
 
   const isShotInTheDark = currentQuestion?.gameType === 'shot-in-the-dark';
+  const isSimonSays = currentQuestion?.gameType === 'simon-says';
 
   const adjustGuess = (amount) => {
     setGuessValue((current) => Math.min(currentQuestion.answerMax, Math.max(currentQuestion.answerMin, Number((current + amount).toFixed(8)))));
+  };
+
+  const handleSimonColor = (color) => {
+    if (answered) return;
+    const nextSequence = [...simonInput, color];
+    setSimonInput(nextSequence);
+    if (nextSequence.length === currentQuestion.simonSequenceLength) {
+      setAnswered(true);
+      setSelectedAnswer('✓');
+      socket.emit('submit-answer', { answer: nextSequence });
+    }
   };
 
   return (
@@ -296,11 +310,20 @@ export default function PlayPage() {
           <p className="text-center text-xs uppercase tracking-widest text-zinc-500 font-semibold mb-2">
             Question {currentQuestion.questionNumber} of {currentQuestion.totalQuestions}
           </p>
-          <h2 className="text-xl font-black text-white text-center leading-snug mb-5 px-1">
+          {currentQuestion.gameType !== 'simon-says' && <h2 className="text-xl font-black text-white text-center leading-snug mb-5 px-1">
             {currentQuestion.questionText}
-          </h2>
+          </h2>}
 
-          {!answered && isShotInTheDark ? (
+          {!answered && isSimonSays ? (
+            <div className="space-y-5 text-center">
+              <p className="text-cyan-300 font-black text-2xl">Simon Says</p>
+              <p className="text-zinc-400 font-semibold">Enter the {currentQuestion.simonSequenceLength}-color sequence.</p>
+              <div className="flex flex-wrap justify-center gap-2 min-h-14 bg-zinc-900 border border-zinc-800 rounded-2xl p-3">{simonInput.length === 0 ? <span className="text-zinc-500 text-sm self-center">Your sequence will appear here</span> : simonInput.map((color, index) => <span key={index} className={`w-9 h-9 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} />)}</div>
+              <p className="text-zinc-400 font-mono">{simonInput.length} / {currentQuestion.simonSequenceLength}</p>
+              <div className="grid grid-cols-2 gap-3 max-w-64 mx-auto"><button onClick={() => handleSimonColor('red')} className="h-28 rounded-2xl bg-red-600 active:bg-red-700 shadow-xl transition active:scale-95 font-black text-white" aria-label="Red">Red</button><button onClick={() => handleSimonColor('green')} className="h-28 rounded-2xl bg-green-600 active:bg-green-700 shadow-xl transition active:scale-95 font-black text-white" aria-label="Green">Green</button><button onClick={() => handleSimonColor('blue')} className="h-28 rounded-2xl bg-blue-600 active:bg-blue-700 shadow-xl transition active:scale-95 font-black text-white" aria-label="Blue">Blue</button><button onClick={() => handleSimonColor('orange')} className="h-28 rounded-2xl bg-orange-500 active:bg-orange-600 shadow-xl transition active:scale-95 font-black text-white" aria-label="Orange">Orange</button></div>
+              {simonInput.length > 0 && <button onClick={() => setSimonInput((sequence) => sequence.slice(0, -1))} className="text-zinc-400 font-bold">Undo last color</button>}
+            </div>
+          ) : !answered && isShotInTheDark ? (
             <div className="space-y-6 text-center">
               <p className="text-zinc-400 font-semibold">Move the slider to make your best estimate:</p>
               <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 flex items-center justify-center gap-6">
@@ -313,7 +336,7 @@ export default function PlayPage() {
           ) : !answered ? (
             <div className="space-y-3">
               <p className="text-center text-zinc-400 font-semibold mb-2">Tap your choice:</p>
-              {currentQuestion.options.map((optText, idx) => {
+              {currentQuestion.options.slice(0, currentQuestion.gameType === 'liar-liar' ? 2 : 4).map((optText, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const btnStyles = {
                   A: 'bg-red-600 active:bg-red-700 border-red-500',
