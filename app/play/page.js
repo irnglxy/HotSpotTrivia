@@ -367,9 +367,9 @@ export default function PlayPage() {
             </div>
           ) : (
             <div className="text-center py-12 bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-              <div className="w-20 h-20 bg-purple-600/20 border border-purple-500 text-purple-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-bounce">
+              {isAutocompleteTrivia ? <div className="max-w-full overflow-x-auto whitespace-nowrap bg-teal-950/60 border border-teal-600 text-teal-200 rounded-2xl px-4 py-3 mb-4 text-lg font-bold">{selectedAnswer}</div> : <div className="w-20 h-20 bg-purple-600/20 border border-purple-500 text-purple-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-bounce">
                 {selectedAnswer}
-              </div>
+              </div>}
               <h2 className="text-2xl font-bold text-white mb-2">{selectedAnswer ? 'Locked In!' : 'Time is up'}</h2>
               <p className="text-zinc-400">Watch the main host screen for the round results.</p>
             </div>

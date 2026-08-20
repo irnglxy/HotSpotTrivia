@@ -213,7 +213,7 @@ export default function DisplayScreen() {
               </h2>
             </div>}
 
-            {currentQuestion.gameType === 'autocomplete-trivia' ? <div className="bg-teal-950/50 border border-teal-700 rounded-3xl p-8 text-center"><p className="text-4xl font-black text-teal-200">Autocomplete Trivia</p><p className="text-zinc-400 mt-3 text-xl">Players are typing and selecting their answer.</p></div> : currentQuestion.gameType === 'simon-says' ? <div className="bg-cyan-950/50 border border-cyan-700 rounded-3xl p-8 text-center"><p className="text-4xl font-black text-cyan-200">Simon Says</p><p className="text-zinc-400 mt-3 text-xl">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
+            {currentQuestion.gameType === 'autocomplete-trivia' ? <div className="bg-teal-950/50 border border-teal-700 rounded-3xl p-8 text-center"><p className="text-zinc-400 text-xl">Players are typing and selecting their answer.</p></div> : currentQuestion.gameType === 'simon-says' ? <div className="bg-cyan-950/50 border border-cyan-700 rounded-3xl p-8 text-center"><p className="text-4xl font-black text-cyan-200">Simon Says</p><p className="text-zinc-400 mt-3 text-xl">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
               <div className="bg-purple-950/50 border border-purple-700 rounded-3xl p-8 text-center">
                 <p className="text-3xl font-black text-purple-200">Shot In The Dark</p>
                 <p className="text-zinc-400 mt-3 text-xl">Make your best estimate between {currentQuestion.answerMin} and {currentQuestion.answerMax}</p>
@@ -266,7 +266,7 @@ export default function DisplayScreen() {
         )}
 
         {status === 'answer-reveal' && answerBreakdown?.gameType === 'autocomplete-trivia' && (
-          <div className="max-w-4xl mx-auto text-center space-y-6"><p className="text-teal-300 font-bold uppercase tracking-widest">Autocomplete Trivia</p><h2 className="text-4xl font-black text-white">{answerBreakdown.questionText}</h2><div className="space-y-3 text-left">{answerBreakdown.answerCounts.map(({ answer, count }) => <div key={answer} className={`flex justify-between bg-zinc-900 border rounded-2xl p-5 text-xl ${answer === answerBreakdown.correctAnswer ? 'border-emerald-400' : 'border-zinc-800'}`}><span className="font-bold text-white">{answer}{answer === answerBreakdown.correctAnswer && <span className="ml-3 text-emerald-400 text-sm">Correct</span>}</span><span className="font-mono text-white">{count}</span></div>)}</div></div>
+          <div className="max-w-4xl mx-auto text-center space-y-6"><h2 className="text-4xl font-black text-white">{answerBreakdown.questionText}</h2><div className="space-y-3 text-left">{answerBreakdown.answerCounts.filter(({ count }) => count > 0).map(({ answer, count }) => <div key={answer} className={`flex justify-between bg-zinc-900 border rounded-2xl p-5 text-xl ${answer === answerBreakdown.correctAnswer ? 'border-emerald-400' : 'border-zinc-800'}`}><span className="font-bold text-white">{answer}{answer === answerBreakdown.correctAnswer && <span className="ml-3 text-emerald-400 text-sm">Correct</span>}</span><span className="font-mono text-white">{count}</span></div>)}</div></div>
         )}
 
         {status === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && (
