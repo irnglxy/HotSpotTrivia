@@ -213,7 +213,7 @@ export default function DisplayScreen() {
               </h2>
             </div>}
 
-            {currentQuestion.gameType === 'simon-says' ? <div className="bg-cyan-950/50 border border-cyan-700 rounded-3xl p-8 text-center"><p className="text-4xl font-black text-cyan-200">Simon Says</p><p className="text-zinc-400 mt-3 text-xl">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
+            {currentQuestion.gameType === 'autocomplete-trivia' ? <div className="bg-teal-950/50 border border-teal-700 rounded-3xl p-8 text-center"><p className="text-4xl font-black text-teal-200">Autocomplete Trivia</p><p className="text-zinc-400 mt-3 text-xl">Players are typing and selecting their answer.</p></div> : currentQuestion.gameType === 'simon-says' ? <div className="bg-cyan-950/50 border border-cyan-700 rounded-3xl p-8 text-center"><p className="text-4xl font-black text-cyan-200">Simon Says</p><p className="text-zinc-400 mt-3 text-xl">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
               <div className="bg-purple-950/50 border border-purple-700 rounded-3xl p-8 text-center">
                 <p className="text-3xl font-black text-purple-200">Shot In The Dark</p>
                 <p className="text-zinc-400 mt-3 text-xl">Make your best estimate between {currentQuestion.answerMin} and {currentQuestion.answerMax}</p>
@@ -265,7 +265,11 @@ export default function DisplayScreen() {
           </div>
         )}
 
-        {status === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && (
+        {status === 'answer-reveal' && answerBreakdown?.gameType === 'autocomplete-trivia' && (
+          <div className="max-w-4xl mx-auto text-center space-y-6"><p className="text-teal-300 font-bold uppercase tracking-widest">Autocomplete Trivia</p><h2 className="text-4xl font-black text-white">{answerBreakdown.questionText}</h2><div className="space-y-3 text-left">{answerBreakdown.answerCounts.map(({ answer, count }) => <div key={answer} className={`flex justify-between bg-zinc-900 border rounded-2xl p-5 text-xl ${answer === answerBreakdown.correctAnswer ? 'border-emerald-400' : 'border-zinc-800'}`}><span className="font-bold text-white">{answer}{answer === answerBreakdown.correctAnswer && <span className="ml-3 text-emerald-400 text-sm">Correct</span>}</span><span className="font-mono text-white">{count}</span></div>)}</div></div>
+        )}
+
+        {status === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && (
           <div className="w-full space-y-8">
             <div className="flex justify-between items-center">
               <span className="text-zinc-400 font-bold text-xl uppercase tracking-widest">
@@ -277,7 +281,7 @@ export default function DisplayScreen() {
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl text-center">
-              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-2">{answerBreakdown.gameType === 'follow-the-herd' ? `Follow The Herd • ${answerBreakdown.herdMode === 'least' ? 'Least popular selected answer scores' : 'Most popular answer scores'}` : answerBreakdown.gameType === 'liar-liar' ? 'Who did the room believe?' : 'How the room voted'}</p>
+              <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-2">{answerBreakdown.gameType === 'follow-the-herd' ? `Follow The Herd • ${answerBreakdown.herdMode === 'least' ? 'Least popular selected answer scores' : 'Most popular answer scores'}` : answerBreakdown.gameType === 'liar-liar' ? 'How did the room answer?' : 'How the room voted'}</p>
               <h2 className="text-2xl md:text-3xl font-black text-white leading-tight">
                 {answerBreakdown.questionText}
               </h2>
@@ -341,7 +345,8 @@ export default function DisplayScreen() {
             <div className="space-y-2">
               <h2 className="text-5xl font-black text-purple-400">Round Complete!</h2>
               {roundResults.gameType === 'trivia' && <p className="text-zinc-400 text-2xl">Correct Answer was: <span className="text-emerald-400 font-extrabold text-3xl">[{roundResults.correctAnswer}]</span></p>}
-              {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 text-2xl">Telling the truth: <span className="text-emerald-400 font-extrabold text-3xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
+              {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 text-2xl">Correct answer: <span className="text-emerald-400 font-extrabold text-3xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
+              {roundResults.gameType === 'autocomplete-trivia' && <p className="text-zinc-400 text-2xl">Correct answer: <span className="text-emerald-400 font-extrabold text-3xl">{roundResults.correctAnswer}</span></p>}
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-4">

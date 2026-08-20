@@ -291,10 +291,13 @@ app.prepare().then(() => {
       const isShotInTheDark = q.game_type === 'shot-in-the-dark';
       const isFollowTheHerd = q.game_type === 'follow-the-herd';
       const isSimonSays = q.game_type === 'simon-says';
+      const isAutocompleteTrivia = q.game_type === 'autocomplete-trivia';
       const numericAnswer = Number(answer);
       if (isShotInTheDark && (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max)) return;
       const simonSequence = isSimonSays ? JSON.parse(q.simon_sequence || '[]') : [];
       if (isSimonSays && (!Array.isArray(answer) || simonSequence.length === 0 || answer.length !== simonSequence.length || answer.some((color) => !['red', 'green', 'blue', 'orange'].includes(color)))) return;
+      const autocompleteAnswers = isAutocompleteTrivia ? JSON.parse(q.autocomplete_answers || '[]') : [];
+      if (isAutocompleteTrivia && (!autocompleteAnswers.includes(answer) || !q.correct_answer)) return;
 
       const timeTaken = (Date.now() - partyState.questionStartTime) / 1000;
       const timeLimit = q.time_limit || 30;
@@ -337,17 +340,19 @@ app.prepare().then(() => {
 });
 
 function buildQuestionPayload(partyState, q) {
+  const isLiarLiar = q.game_type === 'liar-liar';
   return {
     gameType: q.game_type || 'trivia',
     questionNumber: partyState.currentQuestionIndex + 1,
     totalQuestions: partyState.questions.length,
-    questionText: q.question_text,
-    options: [q.option_a, q.option_b, q.option_c, q.option_d],
+    questionText: isLiarLiar ? 'Is it true or false?' : q.question_text,
+    options: isLiarLiar ? ['True', 'False'] : [q.option_a, q.option_b, q.option_c, q.option_d],
     answerMin: q.answer_min,
     answerMax: q.answer_max,
     answerStep: q.answer_step,
     herdMode: q.herd_mode || 'most',
     simonSequenceLength: q.game_type === 'simon-says' ? JSON.parse(q.simon_sequence || '[]').length : undefined,
+    autocompleteAnswers: q.game_type === 'autocomplete-trivia' ? JSON.parse(q.autocomplete_answers || '[]') : undefined,
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
@@ -406,6 +411,25 @@ function revealAnswers(io, partyState) {
     return;
   }
 
+  if (q.game_type === 'autocomplete-trivia') {
+    partyState.status = 'answer-reveal';
+    const autocompleteAnswers = JSON.parse(q.autocomplete_answers || '[]');
+    const answerCounts = autocompleteAnswers.map((answer) => ({
+      answer,
+      count: Object.values(partyState.answersThisRound).filter((entry) => entry.answer === answer).length
+    }));
+    const payload = {
+      gameType: 'autocomplete-trivia', questionText: q.question_text, correctAnswer: q.correct_answer,
+      answerCounts, totalAnswers: Object.keys(partyState.answersThisRound).length,
+      totalPlayers: partyState.players.length, questionNumber: partyState.currentQuestionIndex + 1,
+      totalQuestions: partyState.questions.length,
+      isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+    };
+    partyState.lastBreakdown = payload;
+    io.to('PARTY').emit('answer-breakdown', payload);
+    return;
+  }
+
   partyState.status = 'answer-reveal';
   const counts = { A: 0, B: 0, C: 0, D: 0 };
   Object.values(partyState.answersThisRound).forEach((entry) => {
@@ -435,10 +459,11 @@ function revealAnswers(io, partyState) {
     }
   }
 
+  const isLiarLiar = q.game_type === 'liar-liar';
   const payload = {
     gameType: q.game_type || 'trivia',
-    questionText: q.question_text,
-    options: [q.option_a, q.option_b, q.option_c, q.option_d],
+    questionText: isLiarLiar ? 'Is it true or false?' : q.question_text,
+    options: isLiarLiar ? ['True', 'False'] : [q.option_a, q.option_b, q.option_c, q.option_d],
     counts,
     totalAnswers: Object.keys(partyState.answersThisRound).length,
     totalPlayers: partyState.players.length,
@@ -499,14 +524,16 @@ function scoreShotInTheDark(io, partyState, correctNumber, socket, callback) {
 
 function buildRoundResultsPayload(partyState, q) {
   const isLastQuestion = partyState.currentQuestionIndex === partyState.questions.length - 1;
+  const isLiarLiar = q.game_type === 'liar-liar';
   const currentRanks = buildRankMap(partyState.players);
   return {
     gameType: q.game_type || 'trivia',
     correctAnswer: q.correct_answer,
-    options: [q.option_a, q.option_b, q.option_c, q.option_d],
+    options: isLiarLiar ? ['True', 'False'] : [q.option_a, q.option_b, q.option_c, q.option_d],
     correctNumber: q.correct_number,
     herdMode: q.herd_mode || 'most',
     simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
+    autocompleteAnswers: q.autocomplete_answers ? JSON.parse(q.autocomplete_answers) : [],
     players: partyState.players.map((player) => ({
       ...player,
       rankChange: partyState.previousRanks ? partyState.previousRanks.get(player.id) - currentRanks.get(player.id) : null

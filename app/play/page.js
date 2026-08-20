@@ -11,6 +11,7 @@ const EMOJIS = [
 ];
 const COLORS = ['#a855f7', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
 const PLAYER_STORAGE_KEY = 'hotspot-trivia-player';
+const normalizeAutocompleteText = (text) => text.toLowerCase().replace(/\bthe\b/g, '').replace(/[^a-z0-9]/g, '');
 
 const createPlayerKey = () => globalThis.crypto?.randomUUID?.() || `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -31,6 +32,7 @@ export default function PlayPage() {
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [guessValue, setGuessValue] = useState(null);
   const [simonInput, setSimonInput] = useState([]);
+  const [autocompleteInput, setAutocompleteInput] = useState('');
   const [podiumPlace, setPodiumPlace] = useState(null);
   const [showPodiumPlace, setShowPodiumPlace] = useState(false);
   const [introTitle, setIntroTitle] = useState(null);
@@ -44,6 +46,7 @@ export default function PlayPage() {
       setSelectedAnswer(null);
       setGuessValue(qData.gameType === 'shot-in-the-dark' ? Number(qData.answerMin) : null);
       setSimonInput([]);
+      setAutocompleteInput('');
       setPodiumPlace(null);
       setShowPodiumPlace(false);
     });
@@ -168,6 +171,7 @@ export default function PlayPage() {
 
   const isShotInTheDark = currentQuestion?.gameType === 'shot-in-the-dark';
   const isSimonSays = currentQuestion?.gameType === 'simon-says';
+  const isAutocompleteTrivia = currentQuestion?.gameType === 'autocomplete-trivia';
 
   const adjustGuess = (amount) => {
     setGuessValue((current) => Math.min(currentQuestion.answerMax, Math.max(currentQuestion.answerMin, Number((current + amount).toFixed(8)))));
@@ -314,7 +318,9 @@ export default function PlayPage() {
             {currentQuestion.questionText}
           </h2>}
 
-          {!answered && isSimonSays ? (
+          {!answered && isAutocompleteTrivia ? (
+            <div className="space-y-4"><p className="text-center text-teal-300 font-bold">Start typing your answer, then choose a suggestion.</p><input autoFocus type="text" value={autocompleteInput} onChange={(e) => setAutocompleteInput(e.target.value)} placeholder="Type an answer..." className="w-full p-4 bg-zinc-900 border border-teal-700 rounded-2xl text-white text-lg font-bold focus:outline-none focus:border-teal-400" />{autocompleteInput.trim() && <div className="space-y-2">{(currentQuestion.autocompleteAnswers || []).filter((answer) => normalizeAutocompleteText(answer).includes(normalizeAutocompleteText(autocompleteInput))).slice(0, 6).map((answer) => <button key={answer} onClick={() => handleAnswerClick(answer)} className="w-full text-left p-4 bg-zinc-900 hover:bg-teal-950 border border-zinc-700 hover:border-teal-500 rounded-2xl text-white font-bold transition">{answer}</button>)}{!(currentQuestion.autocompleteAnswers || []).some((answer) => normalizeAutocompleteText(answer).includes(normalizeAutocompleteText(autocompleteInput))) && <p className="text-center text-zinc-500 py-4">No matching answer yet—try a different search.</p>}</div>}</div>
+          ) : !answered && isSimonSays ? (
             <div className="space-y-5 text-center">
               <p className="text-cyan-300 font-black text-2xl">Simon Says</p>
               <p className="text-zinc-400 font-semibold">Enter the {currentQuestion.simonSequenceLength}-color sequence.</p>

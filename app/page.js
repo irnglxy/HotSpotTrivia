@@ -6,12 +6,32 @@ import { socket } from '@/lib/socket';
 const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
   ? { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', correctNumber: '', answerMin: 0, answerMax: 100, answerStep: 1, timeLimit: 30 }
   : gameType === 'liar-liar'
-    ? { questionText: 'Who is telling the truth?', options: ['Player 1', 'Player 2'], correctAnswer: 'A', timeLimit: 15 }
+    ? { questionText: 'Is it true or false?', options: ['True', 'False'], correctAnswer: 'A', timeLimit: 15 }
     : gameType === 'simon-says'
       ? { questionText: '', options: [], simonSequence: [], timeLimit: 15 }
       : gameType === 'player-picker'
         ? { questionText: '', options: [], timeLimit: 15 }
-    : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', herdMode: 'most', timeLimit: 15 };
+        : gameType === 'autocomplete-trivia'
+          ? { questionText: '', options: [], autocompleteAnswers: [], correctAnswer: '', timeLimit: 15 }
+          : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', herdMode: 'most', timeLimit: 15 };
+
+const gameTypeLabel = (gameType) => ({
+  'shot-in-the-dark': 'Shot In The Dark',
+  'follow-the-herd': 'Follow The Herd',
+  'liar-liar': 'Liar Liar',
+  'simon-says': 'Simon Says',
+  'player-picker': 'Player Picker',
+  'autocomplete-trivia': 'Autocomplete Trivia'
+}[gameType] || 'Trivia');
+
+const gameTypeClass = (gameType) => ({
+  'shot-in-the-dark': 'bg-purple-950 text-purple-300',
+  'follow-the-herd': 'bg-amber-950 text-amber-300',
+  'liar-liar': 'bg-rose-950 text-rose-300',
+  'simon-says': 'bg-cyan-950 text-cyan-300',
+  'player-picker': 'bg-fuchsia-950 text-fuchsia-300',
+  'autocomplete-trivia': 'bg-teal-950 text-teal-300'
+}[gameType] || 'bg-blue-950 text-blue-300');
 
 export default function MasterHostDashboard() {
   const [view, setView] = useState('library'); // 'library', 'lobby', 'question', 'answer-reveal', 'results', 'winner-reveal', 'game-over', 'builder'
@@ -234,7 +254,7 @@ export default function MasterHostDashboard() {
         setEditingGameId(data.game.id);
         setGameTitle(data.game.title);
         setGameType(data.game.gameType || 'trivia');
-        setQuestions(data.game.questions);
+        setQuestions(data.game.questions.map((question) => data.game.gameType === 'liar-liar' ? { ...question, questionText: 'Is it true or false?', options: ['True', 'False'] } : question));
         setView('builder');
       } else {
         alert("Could not load game for editing.");
@@ -265,6 +285,14 @@ export default function MasterHostDashboard() {
     setQuestions(updated);
   };
 
+  const handleAutocompleteAnswers = (qIndex, value) => {
+    const answers = [...new Set(value.split('\n').map((answer) => answer.trim()).filter(Boolean))];
+    const updated = [...questions];
+    updated[qIndex].autocompleteAnswers = answers;
+    if (!answers.includes(updated[qIndex].correctAnswer)) updated[qIndex].correctAnswer = answers[0] || '';
+    setQuestions(updated);
+  };
+
   const saveGame = async () => {
     if (!gameTitle.trim()) {
       alert("Please enter a game title.");
@@ -272,6 +300,10 @@ export default function MasterHostDashboard() {
     }
     if (gameType === 'simon-says' && questions.some((question) => !question.simonSequence?.length)) {
       alert('Add at least one color to every Simon Says sequence.');
+      return;
+    }
+    if (gameType === 'autocomplete-trivia' && questions.some((question) => !question.autocompleteAnswers?.length || !question.correctAnswer)) {
+      alert('Add possible answers and select the correct one for every question.');
       return;
     }
 
@@ -388,7 +420,7 @@ export default function MasterHostDashboard() {
                   <div key={game.id} className="p-5 bg-zinc-900 border border-zinc-800 rounded-2xl flex justify-between items-center shadow-lg">
                     <div>
                       <h3 className="font-bold text-lg text-white">{game.title}</h3>
-                      <p className="text-sm text-zinc-400">{game.question_count} Questions <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${game.game_type === 'shot-in-the-dark' ? 'bg-purple-950 text-purple-300' : game.game_type === 'follow-the-herd' ? 'bg-amber-950 text-amber-300' : game.game_type === 'liar-liar' ? 'bg-rose-950 text-rose-300' : game.game_type === 'simon-says' ? 'bg-cyan-950 text-cyan-300' : game.game_type === 'player-picker' ? 'bg-fuchsia-950 text-fuchsia-300' : 'bg-blue-950 text-blue-300'}`}>{game.game_type === 'shot-in-the-dark' ? 'Shot In The Dark' : game.game_type === 'follow-the-herd' ? 'Follow The Herd' : game.game_type === 'liar-liar' ? 'Liar Liar' : game.game_type === 'simon-says' ? 'Simon Says' : game.game_type === 'player-picker' ? 'Player Picker' : 'Trivia'}</span></p>
+                      <p className="text-sm text-zinc-400">{game.question_count} Questions <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${gameTypeClass(game.game_type)}`}>{gameTypeLabel(game.game_type)}</span></p>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="flex flex-col text-xs"><button onClick={() => moveGame(index, -1)} disabled={index === 0} className="disabled:opacity-30">▲</button><button onClick={() => moveGame(index, 1)} disabled={index === games.length - 1} className="disabled:opacity-30">▼</button></div>
@@ -503,7 +535,7 @@ export default function MasterHostDashboard() {
               {currentQuestion.questionText}
             </h1>}
 
-            {currentQuestion.gameType === 'simon-says' ? <div className="mb-10 bg-cyan-950/50 border border-cyan-700 rounded-2xl p-8 text-cyan-200"><p className="text-3xl font-black">Simon Says</p><p className="mt-2">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
+            {currentQuestion.gameType === 'autocomplete-trivia' ? <div className="mb-10 bg-teal-950/50 border border-teal-700 rounded-2xl p-6 text-teal-200 font-bold">Autocomplete Trivia • Players are typing and selecting their answer.</div> : currentQuestion.gameType === 'simon-says' ? <div className="mb-10 bg-cyan-950/50 border border-cyan-700 rounded-2xl p-8 text-cyan-200"><p className="text-3xl font-black">Simon Says</p><p className="mt-2">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
               <div className="mb-10 bg-purple-950/50 border border-purple-700 rounded-2xl p-6 text-purple-200 font-bold">
                 Shot In The Dark • Players are choosing a number between {currentQuestion.answerMin} and {currentQuestion.answerMax}
               </div>
@@ -560,7 +592,11 @@ export default function MasterHostDashboard() {
           </div>
         )}
 
-        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && (
+        {view === 'answer-reveal' && answerBreakdown?.gameType === 'autocomplete-trivia' && (
+          <div className="max-w-3xl mx-auto text-center space-y-6"><p className="text-teal-300 font-bold uppercase tracking-widest">Autocomplete Trivia</p><h2 className="text-3xl font-black text-white">{answerBreakdown.questionText}</h2><div className="space-y-2 text-left">{answerBreakdown.answerCounts.filter(({ count }) => count > 0).map(({ answer, count }) => <div key={answer} className={`flex justify-between bg-zinc-900 border rounded-xl p-4 ${answer === answerBreakdown.correctAnswer ? 'border-emerald-400' : 'border-zinc-800'}`}><span className="font-bold text-white">{answer}{answer === answerBreakdown.correctAnswer && <span className="ml-3 text-emerald-400 text-sm">Correct</span>}</span><span className="font-mono text-white">{count}</span></div>)}</div>{answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}</div>
+        )}
+
+        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && (
           <div>
             {answerBreakdown.isLastQuestion && (
               <div className="mb-6 bg-amber-950/80 border border-amber-500 text-amber-200 px-5 py-3 rounded-2xl font-bold text-center">
@@ -576,7 +612,7 @@ export default function MasterHostDashboard() {
             </div>
 
             <h2 className="text-2xl font-black text-white mb-2">{answerBreakdown.questionText}</h2>
-            <p className="text-purple-300 font-semibold mb-6">{answerBreakdown.gameType === 'follow-the-herd' ? `Follow The Herd • ${answerBreakdown.herdMode === 'least' ? 'Least popular selected answer scores' : 'Most popular answer scores'}` : answerBreakdown.gameType === 'liar-liar' ? 'Who did the room believe?' : 'How the room voted'}</p>
+            <p className="text-purple-300 font-semibold mb-6">{answerBreakdown.gameType === 'follow-the-herd' ? `Follow The Herd • ${answerBreakdown.herdMode === 'least' ? 'Least popular selected answer scores' : 'Most popular answer scores'}` : answerBreakdown.gameType === 'liar-liar' ? 'How did the room answer?' : 'How the room voted'}</p>
 
             <div className="space-y-3 mb-8">
               {answerBreakdown.options.slice(0, answerBreakdown.gameType === 'liar-liar' ? 2 : 4).map((optText, idx) => {
@@ -643,7 +679,8 @@ export default function MasterHostDashboard() {
 
             <h1 className="text-3xl font-extrabold text-purple-400 mb-2">Round Results</h1>
             {roundResults.gameType === 'trivia' && <p className="text-zinc-400 mb-6">Correct Answer was: <span className="text-emerald-400 font-bold text-2xl">[{roundResults.correctAnswer}]</span></p>}
-            {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 mb-6">Telling the truth: <span className="text-emerald-400 font-bold text-2xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
+            {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
+            {roundResults.gameType === 'autocomplete-trivia' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.correctAnswer}</span></p>}
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl space-y-3 mb-8">
               <h2 className="text-xl font-bold text-white mb-4">Game Leaderboard</h2>
@@ -754,7 +791,7 @@ export default function MasterHostDashboard() {
               />
               <label className="block text-zinc-300 font-semibold mt-4 mb-2">Game Type</label>
               <select value={gameType} onChange={(e) => { const type = e.target.value; setGameType(type); setQuestions([newQuestion(type)]); }} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white">
-                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option>
+                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option><option value="autocomplete-trivia">Autocomplete Trivia</option>
               </select>
             </div>
 
@@ -780,8 +817,10 @@ export default function MasterHostDashboard() {
                   onChange={(e) => handleQuestionChange(qIndex, 'questionText', e.target.value)}
                 />}
 
-                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>Player 1</strong> or <strong>Player 2</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
-                  {q.options.map((opt, optIndex) => {
+                {gameType === 'autocomplete-trivia' && <div className="mb-4 rounded-xl border border-teal-800 bg-teal-950/30 p-4"><label className="block font-bold text-teal-200 mb-2">Possible answers</label><textarea value={(q.autocompleteAnswers || []).join('\n')} onChange={(e) => handleAutocompleteAnswers(qIndex, e.target.value)} placeholder={'One answer per line\ne.g. The Beatles'} rows={5} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-teal-500 resize-y" /><p className="text-zinc-400 text-sm mt-2">Players type to filter suggestions, then tap one answer to submit.</p></div>}
+
+                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>True</strong> or <strong>False</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
+                  {gameType !== 'autocomplete-trivia' && q.options.map((opt, optIndex) => {
                     const optLetter = ['A', 'B', 'C', 'D'][optIndex];
                     const badgeColors = { A: 'bg-red-500/20 text-red-400 border-red-500/30', B: 'bg-blue-500/20 text-blue-400 border-blue-500/30', C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', D: 'bg-green-500/20 text-green-400 border-green-500/30' };
 
@@ -806,15 +845,16 @@ export default function MasterHostDashboard() {
                 </div>}
 
                 <div className="flex gap-6 pt-4 border-t border-zinc-800">
+                  {gameType === 'autocomplete-trivia' && <div><label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Correct Answer</label><select className="p-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-teal-500 font-bold" value={q.correctAnswer} onChange={(e) => handleQuestionChange(qIndex, 'correctAnswer', e.target.value)}>{(q.autocompleteAnswers || []).map((answer) => <option key={answer} value={answer}>{answer}</option>)}</select></div>}
                   {(gameType === 'trivia' || gameType === 'liar-liar') && <div>
-                    <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">{gameType === 'liar-liar' ? 'Who is telling the truth?' : 'Correct Answer'}</label>
+                    <label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Correct Answer</label>
                     <select 
                       className="p-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-purple-500 font-bold"
                       value={q.correctAnswer}
                       onChange={(e) => handleQuestionChange(qIndex, 'correctAnswer', e.target.value)}
                     >
-                      <option value="A">{gameType === 'liar-liar' ? 'Player 1' : 'Option A'}</option>
-                      <option value="B">{gameType === 'liar-liar' ? 'Player 2' : 'Option B'}</option>
+                      <option value="A">{gameType === 'liar-liar' ? 'True' : 'Option A'}</option>
+                      <option value="B">{gameType === 'liar-liar' ? 'False' : 'Option B'}</option>
                       {gameType === 'trivia' && <><option value="C">Option C</option><option value="D">Option D</option></>}
                     </select>
                   </div>}
