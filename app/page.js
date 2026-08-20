@@ -11,8 +11,10 @@ const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
       ? { questionText: '', options: [], simonSequence: [], timeLimit: 15 }
       : gameType === 'player-picker'
         ? { questionText: '', options: [], timeLimit: 15 }
-        : gameType === 'autocomplete-trivia'
-          ? { questionText: '', options: [], autocompleteAnswers: [], correctAnswer: '', timeLimit: 15 }
+      : gameType === 'autocomplete-trivia'
+        ? { questionText: '', options: [], autocompleteAnswers: [], correctAnswer: '', timeLimit: 15 }
+        : gameType === 'word-scramble'
+          ? { questionText: '', options: [], scrambleLetters: '', timeLimit: 90 }
           : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', herdMode: 'most', timeLimit: 15 };
 
 const gameTypeLabel = (gameType) => ({
@@ -21,7 +23,8 @@ const gameTypeLabel = (gameType) => ({
   'liar-liar': 'Liar Liar',
   'simon-says': 'Simon Says',
   'player-picker': 'Player Picker',
-  'autocomplete-trivia': 'Autocomplete Trivia'
+  'autocomplete-trivia': 'Autocomplete Trivia',
+  'word-scramble': 'Word Scramble'
 }[gameType] || 'Trivia');
 
 const gameTypeClass = (gameType) => ({
@@ -30,7 +33,8 @@ const gameTypeClass = (gameType) => ({
   'liar-liar': 'bg-rose-950 text-rose-300',
   'simon-says': 'bg-cyan-950 text-cyan-300',
   'player-picker': 'bg-fuchsia-950 text-fuchsia-300',
-  'autocomplete-trivia': 'bg-teal-950 text-teal-300'
+  'autocomplete-trivia': 'bg-teal-950 text-teal-300',
+  'word-scramble': 'bg-[#B8C22E]/20 text-[#B8C22E]'
 }[gameType] || 'bg-blue-950 text-blue-300');
 
 export default function MasterHostDashboard() {
@@ -306,6 +310,10 @@ export default function MasterHostDashboard() {
       alert('Add possible answers and select the correct one for every question.');
       return;
     }
+    if (gameType === 'word-scramble' && questions.some((question) => question.scrambleLetters.replace(/[^a-z]/gi, '').length < 3)) {
+      alert('Add at least 3 letters to every Word Scramble question.');
+      return;
+    }
 
     const payload = { id: editingGameId, title: gameTitle, gameType, questions };
     const method = editingGameId ? 'PUT' : 'POST';
@@ -527,15 +535,15 @@ export default function MasterHostDashboard() {
               </div>
 
               <div className="bg-purple-900/50 border border-purple-700 text-purple-200 px-4 py-1.5 rounded-full font-bold text-sm">
-                Locked In: {answerStats.totalAnswers} / {answerStats.totalPlayers}
+                {currentQuestion.gameType === 'word-scramble' ? `Words Found: ${answerStats.totalAnswers}` : `Locked In: ${answerStats.totalAnswers} / ${answerStats.totalPlayers}`}
               </div>
             </div>
             
-            {currentQuestion.gameType !== 'simon-says' && <h1 className="text-4xl md:text-5xl font-black text-white mb-12 bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl leading-tight">
+            {currentQuestion.gameType !== 'simon-says' && currentQuestion.gameType !== 'word-scramble' && <h1 className="text-4xl md:text-5xl font-black text-white mb-12 bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl leading-tight">
               {currentQuestion.questionText}
             </h1>}
 
-            {currentQuestion.gameType === 'autocomplete-trivia' ? <div className="mb-10 bg-teal-950/50 border border-teal-700 rounded-2xl p-6 text-teal-200 font-bold">Players are typing and selecting their answer.</div> : currentQuestion.gameType === 'simon-says' ? <div className="mb-10 bg-cyan-950/50 border border-cyan-700 rounded-2xl p-8 text-cyan-200"><p className="text-3xl font-black">Simon Says</p><p className="mt-2">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
+            {currentQuestion.gameType === 'word-scramble' ? <div className="mb-10 bg-[#B8C22E]/10 border border-[#B8C22E] rounded-2xl p-8 text-center"><p className="text-[#B8C22E] text-xl font-bold mb-4">Make as many words as you can</p><div className="flex flex-wrap justify-center gap-3">{[...currentQuestion.scrambleLetters].map((letter, index) => <span key={`${letter}-${index}`} className="w-14 h-16 bg-[#B8C22E] text-zinc-950 rounded-xl flex items-center justify-center text-3xl font-black shadow-lg">{letter}</span>)}</div></div> : currentQuestion.gameType === 'autocomplete-trivia' ? <div className="mb-10 bg-teal-950/50 border border-teal-700 rounded-2xl p-6 text-teal-200 font-bold">Players are typing and selecting their answer.</div> : currentQuestion.gameType === 'simon-says' ? <div className="mb-10 bg-cyan-950/50 border border-cyan-700 rounded-2xl p-8 text-cyan-200"><p className="text-3xl font-black">Simon Says</p><p className="mt-2">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
               <div className="mb-10 bg-purple-950/50 border border-purple-700 rounded-2xl p-6 text-purple-200 font-bold">
                 Shot In The Dark • Players are choosing a number between {currentQuestion.answerMin} and {currentQuestion.answerMax}
               </div>
@@ -553,7 +561,7 @@ export default function MasterHostDashboard() {
               })}
             </div>}
 
-            {answerStats.totalPlayers > 0 && answerStats.totalAnswers === answerStats.totalPlayers && timeLeft > 0 && (
+            {currentQuestion.gameType !== 'word-scramble' && answerStats.totalPlayers > 0 && answerStats.totalAnswers === answerStats.totalPlayers && timeLeft > 0 && (
               <p className="text-emerald-400 font-semibold mb-4">Everyone has locked in — the timer keeps running until you reveal.</p>
             )}
 
@@ -561,7 +569,7 @@ export default function MasterHostDashboard() {
               onClick={revealAnswers}
               className={`font-extrabold text-xl px-8 py-4 rounded-2xl shadow-2xl transition ${timeLeft <= 0 ? 'bg-purple-600 hover:bg-purple-500 text-white animate-pulse' : 'bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 text-white'}`}
             >
-              {timeLeft <= 0 ? 'Reveal How Everyone Answered' : 'End Question Early & Reveal Answers'}
+              {currentQuestion.gameType === 'word-scramble' ? (timeLeft <= 0 ? 'Show Word Recap' : 'End Round Early & Show Recap') : (timeLeft <= 0 ? 'Reveal How Everyone Answered' : 'End Question Early & Reveal Answers')}
             </button>
           </div>
         )}
@@ -596,7 +604,11 @@ export default function MasterHostDashboard() {
           <div className="max-w-3xl mx-auto text-center space-y-6"><h2 className="text-3xl font-black text-white">{answerBreakdown.questionText}</h2><div className="space-y-2 text-left">{answerBreakdown.answerCounts.filter(({ count }) => count > 0).map(({ answer, count }) => <div key={answer} className={`flex justify-between bg-zinc-900 border rounded-xl p-4 ${answer === answerBreakdown.correctAnswer ? 'border-emerald-400' : 'border-zinc-800'}`}><span className="font-bold text-white">{answer}{answer === answerBreakdown.correctAnswer && <span className="ml-3 text-emerald-400 text-sm">Correct</span>}</span><span className="font-mono text-white">{count}</span></div>)}</div>{answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}</div>
         )}
 
-        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && (
+        {view === 'answer-reveal' && answerBreakdown?.gameType === 'word-scramble' && (
+          <div className="max-w-3xl mx-auto text-center space-y-6"><p className="text-[#B8C22E] font-bold uppercase tracking-widest">Word Scramble recap</p><div className="grid md:grid-cols-3 gap-3 text-left">{[['Longest word', answerBreakdown.highlights.longestWord, (summary) => summary.longestWord], ['Most words', answerBreakdown.highlights.mostWords, (summary) => `${summary.wordCount} words`], ['Most points', answerBreakdown.highlights.mostPoints, (summary) => `${summary.pointsEarned} pts`]].map(([label, winners, detail]) => <div key={label} className="bg-zinc-900 border border-[#B8C22E] rounded-2xl p-4"><p className="text-xs uppercase tracking-widest text-[#B8C22E] font-bold mb-2">{label}</p>{winners.length ? winners.map((winner) => <p key={winner.playerId} className="text-white font-bold">{winner.emoji} {winner.name}<span className="block text-[#2A97CE] text-sm mt-1">{detail(winner)}</span></p>) : <p className="text-zinc-500">No words found</p>}</div>)}</div><div className="max-h-80 overflow-y-auto space-y-3 text-left pr-2">{[...answerBreakdown.summaries].sort((a, b) => b.pointsEarned - a.pointsEarned).map((summary) => <div key={summary.playerId} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4"><div className="flex justify-between gap-4"><span className="font-bold text-white">{summary.emoji} {summary.name} <span className="text-zinc-400">• {summary.wordCount} words</span></span><span className="font-mono text-[#2A97CE]">+{summary.pointsEarned}</span></div><p className="text-zinc-400 text-sm mt-2 break-words">{summary.words.join(', ') || 'No valid words'}</p>{summary.uniqueWords.length > 0 && <p className="text-[#B8C22E] text-xs font-bold mt-2">Unique: {summary.uniqueWords.join(', ')} (+{summary.uniqueBonus})</p>}</div>)}</div>{answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}</div>
+        )}
+
+        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && answerBreakdown.gameType !== 'word-scramble' && (
           <div>
             {answerBreakdown.isLastQuestion && (
               <div className="mb-6 bg-amber-950/80 border border-amber-500 text-amber-200 px-5 py-3 rounded-2xl font-bold text-center">
@@ -791,7 +803,7 @@ export default function MasterHostDashboard() {
               />
               <label className="block text-zinc-300 font-semibold mt-4 mb-2">Game Type</label>
               <select value={gameType} onChange={(e) => { const type = e.target.value; setGameType(type); setQuestions([newQuestion(type)]); }} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white">
-                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option><option value="autocomplete-trivia">Autocomplete Trivia</option>
+                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option><option value="autocomplete-trivia">Autocomplete Trivia</option><option value="word-scramble">Word Scramble</option>
               </select>
             </div>
 
@@ -809,7 +821,7 @@ export default function MasterHostDashboard() {
                   )}
                 </div>
 
-                {gameType !== 'simon-says' && gameType !== 'player-picker' && <input
+                {gameType !== 'simon-says' && gameType !== 'player-picker' && gameType !== 'word-scramble' && <input
                   type="text" 
                   placeholder="Type your question..."
                   className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 mb-4 focus:outline-none focus:border-purple-500"
@@ -819,7 +831,9 @@ export default function MasterHostDashboard() {
 
                 {gameType === 'autocomplete-trivia' && <div className="mb-4 rounded-xl border border-teal-800 bg-teal-950/30 p-4"><label className="block font-bold text-teal-200 mb-2">Possible answers</label><textarea value={(q.autocompleteAnswers || []).join('\n')} onChange={(e) => handleAutocompleteAnswers(qIndex, e.target.value)} placeholder={'One answer per line\ne.g. The Beatles'} rows={5} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-teal-500 resize-y" /><p className="text-zinc-400 text-sm mt-2">Players type to filter suggestions, then tap one answer to submit.</p></div>}
 
-                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>True</strong> or <strong>False</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
+                {gameType === 'word-scramble' && <div className="mb-4 rounded-xl border border-[#B8C22E] bg-[#B8C22E]/10 p-4"><label className="block font-bold text-[#B8C22E] mb-2">Letters for this round</label><input type="text" value={q.scrambleLetters || ''} onChange={(e) => handleQuestionChange(qIndex, 'scrambleLetters', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="e.g. TRIANGLE" className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-[#B8C22E] uppercase tracking-[0.35em] font-black" /><p className="text-zinc-400 text-sm mt-2">Players can use each letter only as many times as it appears here. Standard dictionary words, including plurals and inflections, are allowed.</p></div>}
+
+                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'word-scramble' ? <div className="mb-4 rounded-xl border border-[#B8C22E] bg-[#B8C22E]/10 p-4 text-[#B8C22E]"><p className="font-bold">Word Scramble</p><p className="text-sm mt-1">Players make as many valid words as they can before time runs out. Default time is 90 seconds.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>True</strong> or <strong>False</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
                   {gameType !== 'autocomplete-trivia' && q.options.map((opt, optIndex) => {
                     const optLetter = ['A', 'B', 'C', 'D'][optIndex];
                     const badgeColors = { A: 'bg-red-500/20 text-red-400 border-red-500/30', B: 'bg-blue-500/20 text-blue-400 border-blue-500/30', C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', D: 'bg-green-500/20 text-green-400 border-green-500/30' };

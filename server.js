@@ -2,6 +2,11 @@ const { createServer } = require('node:http');
 const next = require('next');
 const { Server } = require('socket.io');
 const Database = require('better-sqlite3');
+const fs = require('node:fs');
+const wordListPath = require('word-list').default;
+
+// Kept server-side so the browser never has to download the dictionary.
+const dictionaryWords = new Set(fs.readFileSync(wordListPath, 'utf8').split(/\r?\n/).map((word) => word.trim().toLowerCase()).filter(Boolean));
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0'; // Must be 0.0.0.0 for cloud hosting
@@ -27,6 +32,8 @@ ensureColumn('questions', 'answer_max', 'REAL');
 ensureColumn('questions', 'answer_step', 'REAL');
 ensureColumn('questions', 'herd_mode', "TEXT DEFAULT 'most'");
 ensureColumn('questions', 'simon_sequence', 'TEXT');
+ensureColumn('questions', 'autocomplete_answers', 'TEXT');
+ensureColumn('questions', 'scramble_letters', 'TEXT');
 
 app.prepare().then(() => {
   const httpServer = createServer(handler);
@@ -51,6 +58,7 @@ app.prepare().then(() => {
     questionTimer: null,
     questionExpired: false,
     answersThisRound: {},
+    scrambleWordsThisRound: {},
     previousRanks: null,
     pickerRun: null,
     pickerTimer: null,
@@ -327,6 +335,56 @@ app.prepare().then(() => {
       }
     });
 
+    socket.on('submit-scramble-word', ({ word }, callback) => {
+      if (partyState.status !== 'playing' || partyState.questionExpired) {
+        callback?.({ success: false, error: 'Time is up.' });
+        return;
+      }
+
+      const q = partyState.questions[partyState.currentQuestionIndex];
+      if (q?.game_type !== 'word-scramble') {
+        callback?.({ success: false, error: 'This is not a Word Scramble question.' });
+        return;
+      }
+
+      const normalizedWord = typeof word === 'string' ? word.trim().toLowerCase() : '';
+      const letters = (q.scramble_letters || '').toLowerCase();
+      if (!/^[a-z]{3,}$/.test(normalizedWord)) {
+        callback?.({ success: false, error: 'Words need at least 3 letters.' });
+        return;
+      }
+      if (!dictionaryWords.has(normalizedWord)) {
+        callback?.({ success: false, error: 'That word is not in the dictionary.' });
+        return;
+      }
+      if (!canBuildWord(normalizedWord, letters)) {
+        callback?.({ success: false, error: 'Use only the letters on screen.' });
+        return;
+      }
+
+      const entries = partyState.scrambleWordsThisRound[socket.id] || [];
+      if (entries.some((entry) => entry.word === normalizedWord)) {
+        callback?.({ success: false, error: 'You already found that word.' });
+        return;
+      }
+
+      const longWordBonus = Math.max(0, normalizedWord.length - 5) * 20;
+      const pointsEarned = (normalizedWord.length * 10) + longWordBonus;
+      entries.push({ word: normalizedWord, pointsEarned });
+      partyState.scrambleWordsThisRound[socket.id] = entries;
+
+      const player = partyState.players.find((candidate) => candidate.id === socket.id);
+      if (player) player.score += pointsEarned;
+
+      if (partyState.hostId) {
+        io.to(partyState.hostId).emit('player-answered-update', {
+          totalAnswers: Object.values(partyState.scrambleWordsThisRound).reduce((total, playerWords) => total + playerWords.length, 0),
+          totalPlayers: partyState.players.length
+        });
+      }
+      callback?.({ success: true, word: normalizedWord, pointsEarned });
+    });
+
     socket.on('disconnect', () => {
       console.log(`User disconnected: ${socket.id}`);
       // Optional: keep them in the list or filter them out. 
@@ -353,6 +411,7 @@ function buildQuestionPayload(partyState, q) {
     herdMode: q.herd_mode || 'most',
     simonSequenceLength: q.game_type === 'simon-says' ? JSON.parse(q.simon_sequence || '[]').length : undefined,
     autocompleteAnswers: q.game_type === 'autocomplete-trivia' ? JSON.parse(q.autocomplete_answers || '[]') : undefined,
+    scrambleLetters: q.game_type === 'word-scramble' ? (q.scramble_letters || '').toUpperCase() : undefined,
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
@@ -368,6 +427,7 @@ function sendNextQuestion(io, partyState) {
   partyState.questionExpired = false;
   clearTimeout(partyState.questionTimer);
   partyState.answersThisRound = {};
+  partyState.scrambleWordsThisRound = {};
   partyState.lastBreakdown = null;
   partyState.lastWinner = null;
 
@@ -421,6 +481,45 @@ function revealAnswers(io, partyState) {
     const payload = {
       gameType: 'autocomplete-trivia', questionText: q.question_text, correctAnswer: q.correct_answer,
       answerCounts, totalAnswers: Object.keys(partyState.answersThisRound).length,
+      totalPlayers: partyState.players.length, questionNumber: partyState.currentQuestionIndex + 1,
+      totalQuestions: partyState.questions.length,
+      isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+    };
+    partyState.lastBreakdown = payload;
+    io.to('PARTY').emit('answer-breakdown', payload);
+    return;
+  }
+
+  if (q.game_type === 'word-scramble') {
+    partyState.status = 'answer-reveal';
+    const wordUsers = new Map();
+    Object.values(partyState.scrambleWordsThisRound).flat().forEach((entry) => {
+      wordUsers.set(entry.word, (wordUsers.get(entry.word) || 0) + 1);
+    });
+    const summaries = partyState.players.map((player) => {
+      const words = partyState.scrambleWordsThisRound[player.id] || [];
+      const uniqueWords = words.filter((entry) => wordUsers.get(entry.word) === 1);
+      const uniqueBonus = uniqueWords.length * 25;
+      player.score += uniqueBonus;
+      const basePoints = words.reduce((total, entry) => total + entry.pointsEarned, 0);
+      return {
+        playerId: player.id, name: player.name, emoji: player.emoji,
+        words: words.map((entry) => entry.word), wordCount: words.length,
+        longestWord: words.reduce((longest, entry) => entry.word.length > longest.length ? entry.word : longest, ''),
+        uniqueWords: uniqueWords.map((entry) => entry.word), uniqueBonus,
+        pointsEarned: basePoints + uniqueBonus
+      };
+    });
+    const highest = (property) => Math.max(0, ...summaries.map((summary) => summary[property] || 0));
+    const longestLength = Math.max(0, ...summaries.map((summary) => summary.longestWord.length));
+    const payload = {
+      gameType: 'word-scramble', letters: (q.scramble_letters || '').toUpperCase(), summaries,
+      highlights: {
+        longestWord: summaries.filter((summary) => summary.longestWord.length === longestLength && longestLength > 0),
+        mostWords: summaries.filter((summary) => summary.wordCount === highest('wordCount') && summary.wordCount > 0),
+        mostPoints: summaries.filter((summary) => summary.pointsEarned === highest('pointsEarned') && summary.pointsEarned > 0)
+      },
+      totalAnswers: Object.values(partyState.scrambleWordsThisRound).reduce((total, words) => total + words.length, 0),
       totalPlayers: partyState.players.length, questionNumber: partyState.currentQuestionIndex + 1,
       totalQuestions: partyState.questions.length,
       isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
@@ -534,6 +633,7 @@ function buildRoundResultsPayload(partyState, q) {
     herdMode: q.herd_mode || 'most',
     simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
     autocompleteAnswers: q.autocomplete_answers ? JSON.parse(q.autocomplete_answers) : [],
+    scrambleLetters: q.scramble_letters || '',
     players: partyState.players.map((player) => ({
       ...player,
       rankChange: partyState.previousRanks ? partyState.previousRanks.get(player.id) - currentRanks.get(player.id) : null
@@ -599,10 +699,22 @@ function endGame(io, partyState) {
   partyState.questions = [];
   partyState.currentQuestionIndex = 0;
   partyState.answersThisRound = {};
+  partyState.scrambleWordsThisRound = {};
   partyState.previousRanks = null;
   partyState.pickerRun = null;
   clearTimeout(partyState.pickerTimer);
   partyState.lastBreakdown = null;
   partyState.lastWinner = null;
   io.to("PARTY").emit('game-ended');
+}
+
+function canBuildWord(word, letters) {
+  const available = new Map();
+  for (const letter of letters) available.set(letter, (available.get(letter) || 0) + 1);
+  for (const letter of word) {
+    const count = available.get(letter) || 0;
+    if (count === 0) return false;
+    available.set(letter, count - 1);
+  }
+  return true;
 }

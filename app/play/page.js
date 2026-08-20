@@ -12,6 +12,14 @@ const EMOJIS = [
 const COLORS = ['#a855f7', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
 const PLAYER_STORAGE_KEY = 'hotspot-trivia-player';
 const normalizeAutocompleteText = (text) => text.toLowerCase().replace(/\bthe\b/g, '').replace(/[^a-z0-9]/g, '');
+const shuffledIndexes = (length) => {
+  const indexes = Array.from({ length }, (_, index) => index);
+  for (let index = indexes.length - 1; index > 0; index--) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [indexes[index], indexes[randomIndex]] = [indexes[randomIndex], indexes[index]];
+  }
+  return indexes;
+};
 
 const createPlayerKey = () => globalThis.crypto?.randomUUID?.() || `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -33,6 +41,10 @@ export default function PlayPage() {
   const [guessValue, setGuessValue] = useState(null);
   const [simonInput, setSimonInput] = useState([]);
   const [autocompleteInput, setAutocompleteInput] = useState('');
+  const [scrambleLetterIndexes, setScrambleLetterIndexes] = useState([]);
+  const [scrambleLetterOrder, setScrambleLetterOrder] = useState([]);
+  const [scrambleWords, setScrambleWords] = useState([]);
+  const [scrambleError, setScrambleError] = useState('');
   const [podiumPlace, setPodiumPlace] = useState(null);
   const [showPodiumPlace, setShowPodiumPlace] = useState(false);
   const [introTitle, setIntroTitle] = useState(null);
@@ -47,6 +59,10 @@ export default function PlayPage() {
       setGuessValue(qData.gameType === 'shot-in-the-dark' ? Number(qData.answerMin) : null);
       setSimonInput([]);
       setAutocompleteInput('');
+      setScrambleLetterIndexes([]);
+      setScrambleLetterOrder(qData.gameType === 'word-scramble' ? shuffledIndexes(qData.scrambleLetters.length) : []);
+      setScrambleWords([]);
+      setScrambleError('');
       setPodiumPlace(null);
       setShowPodiumPlace(false);
     });
@@ -172,6 +188,7 @@ export default function PlayPage() {
   const isShotInTheDark = currentQuestion?.gameType === 'shot-in-the-dark';
   const isSimonSays = currentQuestion?.gameType === 'simon-says';
   const isAutocompleteTrivia = currentQuestion?.gameType === 'autocomplete-trivia';
+  const isWordScramble = currentQuestion?.gameType === 'word-scramble';
 
   const adjustGuess = (amount) => {
     setGuessValue((current) => Math.min(currentQuestion.answerMax, Math.max(currentQuestion.answerMin, Number((current + amount).toFixed(8)))));
@@ -187,6 +204,31 @@ export default function PlayPage() {
       socket.emit('submit-answer', { answer: nextSequence });
     }
   };
+
+  const submitScrambleWord = (event) => {
+    event.preventDefault();
+    const word = scrambleLetterIndexes.map((index) => currentQuestion.scrambleLetters[index]).join('');
+    if (answered || !word) return;
+    socket.emit('submit-scramble-word', { word }, (response) => {
+      if (!response?.success) {
+        setScrambleError(response?.error || 'Could not add that word.');
+        return;
+      }
+      setScrambleWords((words) => [...words, { word: response.word, pointsEarned: response.pointsEarned }]);
+      setScrambleLetterIndexes([]);
+      setScrambleError('');
+    });
+  };
+
+  const addScrambleLetter = (index) => {
+    if (answered || scrambleLetterIndexes.includes(index)) return;
+    setScrambleLetterIndexes((indexes) => [...indexes, index]);
+    setScrambleError('');
+  };
+
+  const scrambleWord = currentQuestion && isWordScramble
+    ? scrambleLetterIndexes.map((index) => currentQuestion.scrambleLetters[index]).join('')
+    : '';
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col justify-between p-4 select-none">
@@ -314,11 +356,13 @@ export default function PlayPage() {
           <p className="text-center text-xs uppercase tracking-widest text-zinc-500 font-semibold mb-2">
             Question {currentQuestion.questionNumber} of {currentQuestion.totalQuestions}
           </p>
-          {currentQuestion.gameType !== 'simon-says' && <h2 className="text-xl font-black text-white text-center leading-snug mb-5 px-1">
+          {currentQuestion.gameType !== 'simon-says' && currentQuestion.gameType !== 'word-scramble' && <h2 className="text-xl font-black text-white text-center leading-snug mb-5 px-1">
             {currentQuestion.questionText}
           </h2>}
 
-          {!answered && isAutocompleteTrivia ? (
+          {!answered && isWordScramble ? (
+            <div className="space-y-5"><p className="text-center text-[#B8C22E] font-bold">Tap letters to build as many words as you can.</p><div className="min-h-20 bg-zinc-900 border border-[#2A97CE] rounded-2xl p-4 flex items-center justify-center"><span className={`text-3xl font-black tracking-[0.2em] ${scrambleWord ? 'text-[#2A97CE]' : 'text-zinc-600'}`}>{scrambleWord || 'YOUR WORD'}</span></div><div className="grid grid-cols-4 gap-2 max-w-xs mx-auto">{scrambleLetterOrder.map((index) => { const letter = currentQuestion.scrambleLetters[index]; return <button key={`${letter}-${index}`} onClick={() => addScrambleLetter(index)} disabled={scrambleLetterIndexes.includes(index)} className={`aspect-square rounded-xl flex items-center justify-center text-2xl font-black shadow-lg transition active:scale-95 ${scrambleLetterIndexes.includes(index) ? 'bg-zinc-800 text-zinc-600 opacity-50' : 'bg-[#B8C22E] active:bg-[#a7b127] text-zinc-950'}`}>{letter}</button>; })}</div><form onSubmit={submitScrambleWord} className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setScrambleLetterIndexes((indexes) => indexes.slice(0, -1))} disabled={!scrambleLetterIndexes.length} className="bg-zinc-800 disabled:opacity-40 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl">Undo</button><button type="submit" disabled={scrambleWord.length < 3} className="bg-[#B8C22E] disabled:opacity-40 hover:bg-[#a7b127] text-zinc-950 font-black py-4 rounded-2xl">Submit Word</button></form>{scrambleLetterIndexes.length > 0 && <button type="button" onClick={() => setScrambleLetterIndexes([])} className="block mx-auto text-sm text-zinc-400 font-bold">Clear word</button>}{scrambleError && <p className="text-center text-rose-300 text-sm font-bold">{scrambleError}</p>}<div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4"><div className="flex justify-between text-sm font-bold mb-3"><span className="text-zinc-300">Your words</span><span className="text-[#2A97CE]">{scrambleWords.length} found</span></div>{scrambleWords.length ? <div className="flex flex-wrap gap-2">{scrambleWords.map((entry) => <span key={entry.word} className="bg-[#B8C22E]/15 border border-[#B8C22E] text-[#B8C22E] rounded-lg px-3 py-2 font-bold">{entry.word} <span className="text-[#2A97CE] text-xs">+{entry.pointsEarned}</span></span>)}</div> : <p className="text-zinc-500 text-sm">Words you add will appear here.</p>}</div></div>
+          ) : !answered && isAutocompleteTrivia ? (
             <div className="space-y-4"><p className="text-center text-teal-300 font-bold">Start typing your answer, then choose a suggestion.</p><input autoFocus type="text" value={autocompleteInput} onChange={(e) => setAutocompleteInput(e.target.value)} placeholder="Type an answer..." className="w-full p-4 bg-zinc-900 border border-teal-700 rounded-2xl text-white text-lg font-bold focus:outline-none focus:border-teal-400" />{autocompleteInput.trim() && <div className="space-y-2">{(currentQuestion.autocompleteAnswers || []).filter((answer) => normalizeAutocompleteText(answer).includes(normalizeAutocompleteText(autocompleteInput))).slice(0, 6).map((answer) => <button key={answer} onClick={() => handleAnswerClick(answer)} className="w-full text-left p-4 bg-zinc-900 hover:bg-teal-950 border border-zinc-700 hover:border-teal-500 rounded-2xl text-white font-bold transition">{answer}</button>)}{!(currentQuestion.autocompleteAnswers || []).some((answer) => normalizeAutocompleteText(answer).includes(normalizeAutocompleteText(autocompleteInput))) && <p className="text-center text-zinc-500 py-4">No matching answer yet—try a different search.</p>}</div>}</div>
           ) : !answered && isSimonSays ? (
             <div className="space-y-5 text-center">
