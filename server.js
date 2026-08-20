@@ -399,8 +399,9 @@ app.prepare().then(() => {
 
 function buildQuestionPayload(partyState, q) {
   const isLiarLiar = q.game_type === 'liar-liar';
+  const gameType = q.game_type || (q.scramble_letters ? 'word-scramble' : 'trivia');
   return {
-    gameType: q.game_type || 'trivia',
+    gameType,
     questionNumber: partyState.currentQuestionIndex + 1,
     totalQuestions: partyState.questions.length,
     questionText: isLiarLiar ? 'Is it true or false?' : q.question_text,
@@ -411,7 +412,7 @@ function buildQuestionPayload(partyState, q) {
     herdMode: q.herd_mode || 'most',
     simonSequenceLength: q.game_type === 'simon-says' ? JSON.parse(q.simon_sequence || '[]').length : undefined,
     autocompleteAnswers: q.game_type === 'autocomplete-trivia' ? JSON.parse(q.autocomplete_answers || '[]') : undefined,
-    scrambleLetters: q.game_type === 'word-scramble' ? (q.scramble_letters || '').toUpperCase() : undefined,
+    scrambleLetters: gameType === 'word-scramble' ? (q.scramble_letters || '').toUpperCase() : undefined,
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };

@@ -51,16 +51,18 @@ export default function PlayPage() {
 
   useEffect(() => {
     socket.on('next-question', (qData) => {
+      const isScrambleQuestion = qData.gameType === 'word-scramble' || Boolean(qData.scrambleLetters);
+      const normalizedQuestion = isScrambleQuestion ? { ...qData, gameType: 'word-scramble' } : qData;
       setIntroTitle(null);
       setGameStarted(true);
-      setCurrentQuestion(qData);
+      setCurrentQuestion(normalizedQuestion);
       setAnswered(false);
       setSelectedAnswer(null);
-      setGuessValue(qData.gameType === 'shot-in-the-dark' ? Number(qData.answerMin) : null);
+      setGuessValue(normalizedQuestion.gameType === 'shot-in-the-dark' ? Number(normalizedQuestion.answerMin) : null);
       setSimonInput([]);
       setAutocompleteInput('');
       setScrambleLetterIndexes([]);
-      setScrambleLetterOrder(qData.gameType === 'word-scramble' ? shuffledIndexes(qData.scrambleLetters.length) : []);
+      setScrambleLetterOrder(isScrambleQuestion ? shuffledIndexes(normalizedQuestion.scrambleLetters.length) : []);
       setScrambleWords([]);
       setScrambleError('');
       setPodiumPlace(null);
