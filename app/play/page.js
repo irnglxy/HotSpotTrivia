@@ -53,7 +53,10 @@ export default function PlayPage() {
   useEffect(() => {
     socket.on('next-question', (qData) => {
       const isScrambleQuestion = qData.gameType === 'word-scramble' || Boolean(qData.scrambleLetters);
-      const normalizedQuestion = isScrambleQuestion ? { ...qData, gameType: 'word-scramble' } : qData;
+      const isPitchQuestion = qData.gameType === 'pitch-meeting' || qData.pitchPoints !== undefined;
+      const normalizedQuestion = isScrambleQuestion
+        ? { ...qData, gameType: 'word-scramble' }
+        : isPitchQuestion ? { ...qData, gameType: 'pitch-meeting' } : qData;
       setIntroTitle(null);
       setGameStarted(true);
       setCurrentQuestion(normalizedQuestion);

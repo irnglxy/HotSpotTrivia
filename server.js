@@ -407,7 +407,7 @@ app.prepare().then(() => {
 
 function buildQuestionPayload(partyState, q) {
   const isLiarLiar = q.game_type === 'liar-liar';
-  const gameType = q.game_type || (q.scramble_letters ? 'word-scramble' : 'trivia');
+  const gameType = q.game_type || (q.scramble_letters ? 'word-scramble' : q.pitch_points != null ? 'pitch-meeting' : 'trivia');
   return {
     gameType,
     questionNumber: partyState.currentQuestionIndex + 1,
