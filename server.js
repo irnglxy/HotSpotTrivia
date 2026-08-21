@@ -137,6 +137,17 @@ app.prepare().then(() => {
       // A browser keeps its player key, so refreshing it updates the same player.
       const existingPlayer = partyState.players.find(p => p.id === socket.id || (playerKey && p.playerKey === playerKey));
       if (existingPlayer) {
+        const previousSocketId = existingPlayer.id;
+        if (previousSocketId !== socket.id) {
+          if (partyState.answersThisRound[previousSocketId]) {
+            partyState.answersThisRound[socket.id] = partyState.answersThisRound[previousSocketId];
+            delete partyState.answersThisRound[previousSocketId];
+          }
+          if (partyState.scrambleWordsThisRound[previousSocketId]) {
+            partyState.scrambleWordsThisRound[socket.id] = partyState.scrambleWordsThisRound[previousSocketId];
+            delete partyState.scrambleWordsThisRound[previousSocketId];
+          }
+        }
         existingPlayer.id = socket.id;
         existingPlayer.name = playerName;
         existingPlayer.emoji = emoji || '🎮';
@@ -154,6 +165,7 @@ app.prepare().then(() => {
 
       // Broadcast updated player list to host and all players
       io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
+      syncPlayerToCurrentState(socket, partyState);
       callback({ success: true });
       console.log(`${emoji} ${playerName} joined the master party!`);
     });
@@ -435,6 +447,61 @@ function buildQuestionPayload(partyState, q) {
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
+}
+
+function syncPlayerToCurrentState(socket, partyState) {
+  const currentQuestion = partyState.questions[partyState.currentQuestionIndex];
+  const sendCurrentQuestion = () => {
+    if (currentQuestion) socket.emit('next-question', buildQuestionPayload(partyState, currentQuestion));
+  };
+
+  if (partyState.status === 'intro') {
+    socket.emit('game-intro', { title: partyState.gameTitle, gameType: currentQuestion?.game_type || 'trivia' });
+    return;
+  }
+
+  if (partyState.status === 'playing') {
+    sendCurrentQuestion();
+    const entry = partyState.answersThisRound[socket.id];
+    const scrambleWords = partyState.scrambleWordsThisRound[socket.id];
+    if (entry || scrambleWords?.length) socket.emit('player-answer-state', {
+      answer: entry?.answer,
+      scrambleWords,
+      isWordScramble: currentQuestion.game_type === 'word-scramble'
+    });
+    if (partyState.questionExpired) socket.emit('question-time-up');
+    return;
+  }
+
+  if (partyState.status === 'answer-entry') {
+    sendCurrentQuestion();
+    socket.emit('question-time-up');
+    return;
+  }
+
+  if (partyState.status === 'answer-reveal') {
+    sendCurrentQuestion();
+    if (partyState.lastBreakdown) socket.emit('answer-breakdown', partyState.lastBreakdown);
+    return;
+  }
+
+  if (partyState.status === 'results') {
+    sendCurrentQuestion();
+    socket.emit('question-time-up');
+    return;
+  }
+
+  if (partyState.status === 'winner-reveal' && partyState.lastWinner) {
+    socket.emit('winner-reveal', partyState.lastWinner);
+    return;
+  }
+
+  if (partyState.status === 'game-over') {
+    socket.emit('game-over');
+    return;
+  }
+
+  if (partyState.status === 'lobby') socket.emit('game-ended');
 }
 
 function sendNextQuestion(io, partyState) {

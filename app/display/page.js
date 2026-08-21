@@ -139,7 +139,7 @@ export default function DisplayScreen() {
           <h1 className="text-2xl font-black tracking-wider text-purple-400 uppercase">Deven and Ned Present</h1>
         </div>
         <div className="text-sm font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-xl">
-          Join on your phone: <span className="text-[#B8C22E] font-bold">/play</span>
+          Join at: <span className="text-[#B8C22E] font-bold">gamenight.devengreen.com/play</span>
         </div>
       </div>
 
@@ -154,7 +154,6 @@ export default function DisplayScreen() {
                 Welcome to the Party!
               </span>
               <h2 className="text-6xl font-black tracking-tight"><span className="text-[#2A97CE]">GAME</span>{' '}<span className="text-[#B8C22E]">NIGHT</span></h2>
-              <p className="text-zinc-400 text-xl">Head to <span className="text-[#B8C22E] font-mono underline">/play</span> and log in with your name and emoji.</p>
             </div>
 
             {/* Live Connected Players Wall */}

@@ -84,6 +84,13 @@ export default function PlayPage() {
       setSelectedAnswer(null);
     });
 
+    socket.on('player-answer-state', ({ answer, scrambleWords: savedScrambleWords, isWordScramble: savedWordScramble }) => {
+      if (savedScrambleWords) setScrambleWords(savedScrambleWords);
+      if (savedWordScramble) return;
+      setAnswered(true);
+      setSelectedAnswer(Array.isArray(answer) ? '✓' : answer ?? null);
+    });
+
     socket.on('winner-reveal', (data) => {
       if (data.gameType === 'pitch-meeting') {
         setGameStarted(false);
@@ -107,6 +114,7 @@ export default function PlayPage() {
       setSelectedAnswer(null);
       setPodiumPlace(null);
       setShowPodiumPlace(false);
+      setIntroTitle(null);
     });
 
     socket.on('room-closed', () => {
@@ -119,6 +127,7 @@ export default function PlayPage() {
       socket.off('game-intro');
       socket.off('answer-breakdown');
       socket.off('question-time-up');
+      socket.off('player-answer-state');
       socket.off('winner-reveal');
       socket.off('game-over');
       socket.off('game-ended');
@@ -127,11 +136,17 @@ export default function PlayPage() {
   }, []);
 
   useEffect(() => {
-    const savedPlayer = localStorage.getItem(PLAYER_STORAGE_KEY);
-    if (!savedPlayer) return;
+    const restorePlayerSession = () => {
+      const savedPlayer = localStorage.getItem(PLAYER_STORAGE_KEY);
+      if (!savedPlayer) return;
 
-    try {
-      const savedProfile = JSON.parse(savedPlayer);
+      let savedProfile;
+      try {
+        savedProfile = JSON.parse(savedPlayer);
+      } catch {
+        localStorage.removeItem(PLAYER_STORAGE_KEY);
+        return;
+      }
       if (!savedProfile.playerName || !savedProfile.playerKey) return;
 
       socket.emit('join-master-lobby', {
@@ -148,9 +163,23 @@ export default function PlayPage() {
           setJoined(true);
         }
       });
-    } catch {
-      localStorage.removeItem(PLAYER_STORAGE_KEY);
-    }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (socket.connected) restorePlayerSession();
+      else socket.connect();
+    };
+
+    socket.on('connect', restorePlayerSession);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    if (socket.connected) restorePlayerSession();
+    else socket.connect();
+
+    return () => {
+      socket.off('connect', restorePlayerSession);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -353,6 +382,7 @@ export default function PlayPage() {
       {/* 2. WAITING LOBBY SCREEN */}
       {joined && !isEditingName && !gameStarted && !podiumPlace && (
         <div className="text-center my-auto p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl mx-auto max-w-md w-full">
+          <h1 className="text-4xl font-black tracking-tight mb-7"><span className="text-[#2A97CE]">GAME</span>{' '}<span className="text-[#B8C22E]">NIGHT</span></h1>
           <div className="w-20 h-20 bg-emerald-500/20 border border-emerald-500 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-pulse">
             ✓
           </div>
