@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
 import db from '@/lib/db';
+import hostAuth from '@/lib/host-auth.cjs';
+
+const requireHost = (request) => hostAuth.isAuthorizedCookie(request.headers.get('cookie')) ? null : NextResponse.json({ error: 'Host sign-in required.' }, { status: 401 });
 
 // POST: Save a new game and its questions
 export async function POST(request) {
+  const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
     const body = await request.json();
     const { title, gameType = 'trivia', questions } = body;
@@ -57,6 +61,7 @@ export async function POST(request) {
 
 // GET: Fetch all games or a single game with its questions
 export async function GET(request) {
+  const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -109,6 +114,7 @@ export async function GET(request) {
 
 // DELETE: Delete a game and its questions
 export async function DELETE(request) {
+  const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -130,6 +136,7 @@ export async function DELETE(request) {
 
 // PUT: Update an existing game and its questions
 export async function PUT(request) {
+  const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
     const body = await request.json();
     const { id, title, gameType = 'trivia', questions } = body;
@@ -184,6 +191,7 @@ export async function PUT(request) {
 }
 
 export async function PATCH(request) {
+  const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
     const { gameIds } = await request.json();
     if (!Array.isArray(gameIds)) return NextResponse.json({ error: 'Game order is required.' }, { status: 400 });

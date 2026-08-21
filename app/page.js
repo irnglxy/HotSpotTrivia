@@ -71,6 +71,14 @@ export default function MasterHostDashboard() {
   const [correctNumber, setCorrectNumber] = useState('');
   const [pickerCount, setPickerCount] = useState(1);
   const [pickedPlayers, setPickedPlayers] = useState([]);
+  const [authStatus, setAuthStatus] = useState('checking');
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/auth/status').then((response) => response.json()).then((data) => setAuthStatus(data.authenticated ? 'authenticated' : 'unauthenticated')).catch(() => setAuthStatus('unauthenticated'));
+  }, []);
 
   const fetchGames = async () => {
     try {
@@ -348,6 +356,16 @@ export default function MasterHostDashboard() {
       console.error("Save error:", err);
     }
   };
+
+  const submitLogin = async (event) => {
+    event.preventDefault();
+    const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: loginUsername, password: loginPassword }) });
+    if (response.ok) { setAuthStatus('authenticated'); setLoginError(''); socket.disconnect(); socket.connect(); socket.once('connect', () => socket.emit('host-master-lobby')); fetchGames(); return; }
+    const data = await response.json();
+    setLoginError(data.error || 'Could not sign in.');
+  };
+
+  if (authStatus !== 'authenticated') return <main className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4"><form onSubmit={submitLogin} className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-5 shadow-2xl"><h1 className="text-3xl font-black text-purple-400 text-center">Host Login</h1>{authStatus === 'checking' ? <p className="text-center text-zinc-400">Checking session…</p> : <><p className="text-zinc-400 text-center">Sign in to manage games and the party.</p>{loginError && <p className="text-rose-300 text-sm text-center">{loginError}</p>}<input value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} placeholder="Username" autoComplete="username" className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" /><input value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} placeholder="Password" type="password" autoComplete="current-password" className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-white" /><button className="w-full p-3 rounded-xl bg-purple-600 font-bold text-white">Sign In</button></>}</form></main>;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-6 md:p-12">

@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const Database = require('better-sqlite3');
 const fs = require('node:fs');
 const wordListPath = require('word-list').default;
+const hostAuth = require('./lib/host-auth.cjs');
 
 // Kept server-side so the browser never has to download the dictionary.
 const dictionaryWords = new Set(fs.readFileSync(wordListPath, 'utf8').split(/\r?\n/).map((word) => word.trim().toLowerCase()).filter(Boolean));
@@ -70,6 +71,11 @@ app.prepare().then(() => {
 
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
+    const hostEvents = new Set(['host-master-lobby', 'set-signups-open', 'rename-player', 'load-game', 'start-game', 'begin-first-question', 'start-player-picker', 'reveal-answers', 'score-shot-in-the-dark', 'show-scores', 'reveal-winner', 'reveal-pitch-winner', 'show-final-scores', 'end-game', 'next-question-btn']);
+    socket.use(([event], next) => {
+      if (hostEvents.has(event) && event !== 'host-master-lobby' && socket.id !== partyState.hostId) return;
+      next();
+    });
 
 // Display screen joins the master party room to watch the action
     socket.on('join-display-screen', () => {
@@ -106,6 +112,10 @@ app.prepare().then(() => {
 
     // Host initializes or reconnects to the master lobby
     socket.on('host-master-lobby', () => {
+      if (!hostAuth.isAuthorizedCookie(socket.handshake.headers.cookie)) {
+        socket.emit('host-authorization-failed');
+        return;
+      }
       partyState.hostId = socket.id;
       socket.join(MASTER_ROOM);
       socket.emit('master-update', { 
