@@ -139,7 +139,7 @@ export default function DisplayScreen() {
           <h1 className="text-2xl font-black tracking-wider text-purple-400 uppercase">Deven and Ned Present</h1>
         </div>
         <div className="text-sm font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded-xl">
-          Join on your phone: <span className="text-emerald-400 font-bold">/play</span>
+          Join on your phone: <span className="text-[#B8C22E] font-bold">/play</span>
         </div>
       </div>
 
@@ -153,15 +153,15 @@ export default function DisplayScreen() {
               <span className="bg-purple-950/80 border border-purple-700 text-purple-300 px-6 py-2 rounded-full text-lg font-bold uppercase tracking-widest inline-block animate-pulse">
                 Welcome to the Party!
               </span>
-              <h2 className="text-6xl font-black tracking-tight text-white">GAME NIGHT</h2>
-              <p className="text-zinc-400 text-xl">Head to <span className="text-emerald-400 font-mono underline">/play</span> and log in with your name and emoji.</p>
+              <h2 className="text-6xl font-black tracking-tight"><span className="text-[#2A97CE]">GAME</span>{' '}<span className="text-[#B8C22E]">NIGHT</span></h2>
+              <p className="text-zinc-400 text-xl">Head to <span className="text-[#B8C22E] font-mono underline">/play</span> and log in with your name and emoji.</p>
             </div>
 
             {/* Live Connected Players Wall */}
             <div className="bg-zinc-900/60 border border-zinc-800 p-8 rounded-3xl backdrop-blur shadow-2xl max-w-4xl mx-auto">
               <h3 className="text-xl font-bold text-zinc-300 mb-6 flex justify-between items-center">
                 <span>Connected Players in Room</span>
-                <span className="text-emerald-400 font-mono text-2xl">{players.length}</span>
+                <span className="text-[#B8C22E] font-mono text-2xl">{players.length}</span>
               </h3>
 
               {players.length === 0 ? (
@@ -218,7 +218,7 @@ export default function DisplayScreen() {
                 <p className="text-3xl font-black text-purple-200">Shot In The Dark</p>
                 <p className="text-zinc-400 mt-3 text-xl">Make your best estimate between {currentQuestion.answerMin} and {currentQuestion.answerMax}</p>
               </div>
-            ) : <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            ) : currentQuestion.gameType === 'pitch-meeting' ? <div className="bg-sky-950/50 border border-sky-700 rounded-3xl p-8 text-center"><p className="text-4xl font-black text-sky-200">Pitch Meeting</p><p className="text-zinc-400 mt-3 text-xl">Players are allocating {currentQuestion.pitchPoints} points between the two pitches.</p></div> : <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {currentQuestion.options.slice(0, currentQuestion.gameType === 'liar-liar' ? 2 : 4).map((optText, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const optColors = {
@@ -273,7 +273,11 @@ export default function DisplayScreen() {
           <div className="max-w-5xl mx-auto text-center space-y-8"><p className="text-[#B8C22E] font-bold uppercase tracking-widest">Word Scramble recap</p><div className="grid md:grid-cols-3 gap-5">{[['Longest word', answerBreakdown.highlights.longestWord, (summary) => summary.longestWord], ['Most words', answerBreakdown.highlights.mostWords, (summary) => `${summary.wordCount} words`], ['Most points', answerBreakdown.highlights.mostPoints, (summary) => `${summary.pointsEarned} pts`]].map(([label, winners, detail]) => <div key={label} className="bg-zinc-900 border border-[#B8C22E] rounded-3xl p-6"><p className="text-[#B8C22E] uppercase tracking-widest text-sm font-bold mb-4">{label}</p>{winners.length ? winners.map((winner) => <div key={winner.playerId} className="mb-3 last:mb-0"><p className="text-2xl font-black text-white">{winner.emoji} {winner.name}</p><p className="text-[#2A97CE] text-xl font-bold">{detail(winner)}</p></div>) : <p className="text-zinc-500">No words found</p>}</div>)}</div><div className="grid md:grid-cols-2 gap-4 text-left">{[...answerBreakdown.summaries].sort((a, b) => b.pointsEarned - a.pointsEarned).map((summary) => <div key={summary.playerId} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5"><div className="flex justify-between gap-3"><span className="font-bold text-white text-xl">{summary.emoji} {summary.name}</span><span className="font-mono text-[#2A97CE]">+{summary.pointsEarned}</span></div><p className="text-zinc-400 mt-2">{summary.words.join(', ') || 'No valid words'}</p>{summary.uniqueWords.length > 0 && <p className="text-[#B8C22E] text-sm font-bold mt-2">Unique: {summary.uniqueWords.join(', ')} (+{summary.uniqueBonus})</p>}</div>)}</div></div>
         )}
 
-        {status === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && answerBreakdown.gameType !== 'word-scramble' && (
+        {status === 'answer-reveal' && answerBreakdown?.gameType === 'pitch-meeting' && (
+          <div className="max-w-5xl mx-auto text-center space-y-10"><p className="text-sky-300 font-bold uppercase tracking-widest">Pitch Meeting scoreboard</p><h2 className="text-5xl font-black text-white">{answerBreakdown.questionText}</h2><div className="grid md:grid-cols-2 gap-8">{['A', 'B'].map((key, index) => { const score = answerBreakdown.roundScores[key]; const max = Math.max(1, answerBreakdown.roundScores.A, answerBreakdown.roundScores.B); return <div key={key} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8"><p className={`text-3xl font-black ${index === 0 ? 'text-red-300' : 'text-blue-300'}`}>{answerBreakdown.options[index]}</p><p className="text-6xl font-black text-white my-6">{score.toLocaleString()}</p><div className="h-10 bg-zinc-950 rounded-full overflow-hidden"><div className={`${index === 0 ? 'bg-red-500' : 'bg-blue-500'} h-full transition-all duration-1000`} style={{ width: `${(score / max) * 100}%` }} /></div></div>; })}</div></div>
+        )}
+
+        {status === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && answerBreakdown.gameType !== 'word-scramble' && answerBreakdown.gameType !== 'pitch-meeting' && (
           <div className="w-full space-y-8">
             <div className="flex justify-between items-center">
               <span className="text-zinc-400 font-bold text-xl uppercase tracking-widest">
@@ -377,7 +381,9 @@ export default function DisplayScreen() {
           <div className="text-center space-y-10 py-8">
             <p className="text-4xl md:text-5xl font-bold text-zinc-400 tracking-wide">The winner is...</p>
             <div className="min-h-64 flex flex-col items-center justify-center">
-              {showWinnerName && winnerReveal.winners.length > 0 ? (
+              {showWinnerName && winnerReveal.gameType === 'pitch-meeting' ? (
+                <div className="space-y-5">{winnerReveal.winners.length > 1 && <h2 className="text-6xl md:text-8xl font-black text-white">It&apos;s a tie!</h2>}{winnerReveal.winningGroups.map((group, index) => { const isOptionA = group.key === 'A'; return <div key={index} className={`rounded-3xl border-2 p-8 ${isOptionA ? 'bg-red-950/50 border-red-500' : 'bg-blue-950/50 border-blue-500'}`}><p className={`text-6xl md:text-7xl font-black ${isOptionA ? 'text-red-300' : 'text-blue-300'}`}>{group.score.toLocaleString()}</p><p className="text-2xl text-zinc-200 mt-3">{group.options.join(' • ')}</p></div>; })}</div>
+              ) : showWinnerName && winnerReveal.winners.length > 0 ? (
                 <div className="space-y-8">
                   {winnerReveal.winners.map((w) => (
                     <div key={w.id} className="flex flex-col items-center gap-4">

@@ -39,6 +39,7 @@ export default function PlayPage() {
   const [answered, setAnswered] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [guessValue, setGuessValue] = useState(null);
+  const [pitchAllocation, setPitchAllocation] = useState(null);
   const [simonInput, setSimonInput] = useState([]);
   const [autocompleteInput, setAutocompleteInput] = useState('');
   const [scrambleLetterIndexes, setScrambleLetterIndexes] = useState([]);
@@ -59,6 +60,7 @@ export default function PlayPage() {
       setAnswered(false);
       setSelectedAnswer(null);
       setGuessValue(normalizedQuestion.gameType === 'shot-in-the-dark' ? Number(normalizedQuestion.answerMin) : null);
+      setPitchAllocation(normalizedQuestion.gameType === 'pitch-meeting' ? normalizedQuestion.pitchPoints / 2 : null);
       setSimonInput([]);
       setAutocompleteInput('');
       setScrambleLetterIndexes([]);
@@ -80,7 +82,12 @@ export default function PlayPage() {
     });
 
     socket.on('winner-reveal', (data) => {
-      const playerResult = data.podium.find((player) => player.id === socket.id);
+      if (data.gameType === 'pitch-meeting') {
+        setGameStarted(false);
+        setCurrentQuestion(null);
+        return;
+      }
+      const playerResult = data.podium?.find((player) => player.id === socket.id);
       setPodiumPlace(playerResult?.place ?? null);
       setShowPodiumPlace(false);
     });
@@ -188,6 +195,7 @@ export default function PlayPage() {
   };
 
   const isShotInTheDark = currentQuestion?.gameType === 'shot-in-the-dark';
+  const isPitchMeeting = currentQuestion?.gameType === 'pitch-meeting';
   const isSimonSays = currentQuestion?.gameType === 'simon-says';
   const isAutocompleteTrivia = currentQuestion?.gameType === 'autocomplete-trivia';
   const isWordScramble = currentQuestion?.gameType === 'word-scramble';
@@ -362,7 +370,9 @@ export default function PlayPage() {
             {currentQuestion.questionText}
           </h2>}
 
-          {!answered && isWordScramble ? (
+          {!answered && isPitchMeeting ? (
+            <div className="space-y-6 text-center"><div className="bg-zinc-900 border border-sky-700 rounded-3xl p-6"><div className="flex justify-between gap-4 text-xl font-black"><span className="text-red-300 text-left">{currentQuestion.options[0]}<strong className="block text-4xl text-white mt-2">{pitchAllocation}</strong></span><span className="text-blue-300 text-right">{currentQuestion.options[1]}<strong className="block text-4xl text-white mt-2">{currentQuestion.pitchPoints - pitchAllocation}</strong></span></div><input type="range" min="0" max={currentQuestion.pitchPoints} step="1" value={currentQuestion.pitchPoints - (pitchAllocation ?? currentQuestion.pitchPoints / 2)} onChange={(e) => setPitchAllocation(currentQuestion.pitchPoints - Number(e.target.value))} className="w-full mt-8 accent-sky-400" /></div><button onClick={() => handleAnswerClick(pitchAllocation)} className="w-full bg-sky-500 hover:bg-sky-400 text-zinc-950 p-4 rounded-2xl font-black text-lg">Lock In Allocation</button></div>
+          ) : !answered && isWordScramble ? (
             <div className="space-y-5"><p className="text-center text-[#B8C22E] font-bold">Tap letters to build as many words as you can.</p><div className="min-h-20 bg-zinc-900 border border-[#2A97CE] rounded-2xl p-4 flex items-center justify-center"><span className={`text-3xl font-black tracking-[0.2em] ${scrambleWord ? 'text-[#2A97CE]' : 'text-zinc-600'}`}>{scrambleWord || 'YOUR WORD'}</span></div><div className="grid grid-cols-4 gap-2 max-w-xs mx-auto">{scrambleLetterOrder.map((index) => { const letter = currentQuestion.scrambleLetters[index]; return <button key={`${letter}-${index}`} onClick={() => addScrambleLetter(index)} disabled={scrambleLetterIndexes.includes(index)} className={`aspect-square rounded-xl flex items-center justify-center text-2xl font-black shadow-lg transition active:scale-95 ${scrambleLetterIndexes.includes(index) ? 'bg-zinc-800 text-zinc-600 opacity-50' : 'bg-[#B8C22E] active:bg-[#a7b127] text-zinc-950'}`}>{letter}</button>; })}</div><form onSubmit={submitScrambleWord} className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setScrambleLetterIndexes((indexes) => indexes.slice(0, -1))} disabled={!scrambleLetterIndexes.length} className="bg-zinc-800 disabled:opacity-40 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl">Undo</button><button type="submit" disabled={scrambleWord.length < 3} className="bg-[#B8C22E] disabled:opacity-40 hover:bg-[#a7b127] text-zinc-950 font-black py-4 rounded-2xl">Submit Word</button></form>{scrambleLetterIndexes.length > 0 && <button type="button" onClick={() => setScrambleLetterIndexes([])} className="block mx-auto text-sm text-zinc-400 font-bold">Clear word</button>}{scrambleError && <p className="text-center text-rose-300 text-sm font-bold">{scrambleError}</p>}<div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4"><div className="flex justify-between text-sm font-bold mb-3"><span className="text-zinc-300">Your words</span><span className="text-[#2A97CE]">{scrambleWords.length} found</span></div>{scrambleWords.length ? <div className="flex flex-wrap gap-2">{scrambleWords.map((entry) => <span key={entry.word} className="bg-[#B8C22E]/15 border border-[#B8C22E] text-[#B8C22E] rounded-lg px-3 py-2 font-bold">{entry.word} <span className="text-[#2A97CE] text-xs">+{entry.pointsEarned}</span></span>)}</div> : <p className="text-zinc-500 text-sm">Words you add will appear here.</p>}</div></div>
           ) : !answered && isAutocompleteTrivia ? (
             <div className="space-y-4"><p className="text-center text-teal-300 font-bold">Start typing your answer, then choose a suggestion.</p><input autoFocus type="text" value={autocompleteInput} onChange={(e) => setAutocompleteInput(e.target.value)} placeholder="Type an answer..." className="w-full p-4 bg-zinc-900 border border-teal-700 rounded-2xl text-white text-lg font-bold focus:outline-none focus:border-teal-400" />{autocompleteInput.trim() && <div className="space-y-2">{(currentQuestion.autocompleteAnswers || []).filter((answer) => normalizeAutocompleteText(answer).includes(normalizeAutocompleteText(autocompleteInput))).slice(0, 6).map((answer) => <button key={answer} onClick={() => handleAnswerClick(answer)} className="w-full text-left p-4 bg-zinc-900 hover:bg-teal-950 border border-zinc-700 hover:border-teal-500 rounded-2xl text-white font-bold transition">{answer}</button>)}{!(currentQuestion.autocompleteAnswers || []).some((answer) => normalizeAutocompleteText(answer).includes(normalizeAutocompleteText(autocompleteInput))) && <p className="text-center text-zinc-500 py-4">No matching answer yet—try a different search.</p>}</div>}</div>

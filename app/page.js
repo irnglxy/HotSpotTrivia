@@ -15,6 +15,8 @@ const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
         ? { questionText: '', options: [], autocompleteAnswers: [], correctAnswer: '', timeLimit: 15 }
         : gameType === 'word-scramble'
           ? { questionText: '', options: [], scrambleLetters: '', timeLimit: 90 }
+          : gameType === 'pitch-meeting'
+            ? { questionText: '', options: ['', ''], pitchPoints: 100, timeLimit: 30 }
           : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', herdMode: 'most', timeLimit: 15 };
 
 const gameTypeLabel = (gameType) => ({
@@ -25,6 +27,7 @@ const gameTypeLabel = (gameType) => ({
   'player-picker': 'Player Picker',
   'autocomplete-trivia': 'Autocomplete Trivia',
   'word-scramble': 'Word Scramble'
+  ,'pitch-meeting': 'Pitch Meeting'
 }[gameType] || 'Trivia');
 
 const gameTypeClass = (gameType) => ({
@@ -35,6 +38,7 @@ const gameTypeClass = (gameType) => ({
   'player-picker': 'bg-fuchsia-950 text-fuchsia-300',
   'autocomplete-trivia': 'bg-teal-950 text-teal-300',
   'word-scramble': 'bg-[#B8C22E]/20 text-[#B8C22E]'
+  ,'pitch-meeting': 'bg-sky-950 text-sky-300'
 }[gameType] || 'bg-blue-950 text-blue-300');
 
 export default function MasterHostDashboard() {
@@ -192,6 +196,7 @@ export default function MasterHostDashboard() {
   const revealAnswers = () => socket.emit('reveal-answers');
   const showScores = () => socket.emit('show-scores');
   const revealWinner = () => socket.emit('reveal-winner');
+  const revealPitchWinner = () => socket.emit('reveal-pitch-winner');
   const showFinalScores = () => socket.emit('show-final-scores');
   const endGame = () => socket.emit('end-game');
   const nextQuestion = () => socket.emit('next-question-btn');
@@ -312,6 +317,10 @@ export default function MasterHostDashboard() {
     }
     if (gameType === 'word-scramble' && questions.some((question) => question.scrambleLetters.replace(/[^a-z]/gi, '').length < 3)) {
       alert('Add at least 3 letters to every Word Scramble question.');
+      return;
+    }
+    if (gameType === 'pitch-meeting' && questions.some((question) => !question.options[0]?.trim() || !question.options[1]?.trim() || !Number.isInteger(question.pitchPoints) || question.pitchPoints < 2 || question.pitchPoints % 2 !== 0)) {
+      alert('Add two option names and an even total number of points to every Pitch Meeting question.');
       return;
     }
 
@@ -547,7 +556,7 @@ export default function MasterHostDashboard() {
               <div className="mb-10 bg-purple-950/50 border border-purple-700 rounded-2xl p-6 text-purple-200 font-bold">
                 Shot In The Dark • Players are choosing a number between {currentQuestion.answerMin} and {currentQuestion.answerMax}
               </div>
-            ) : <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+            ) : currentQuestion.gameType === 'pitch-meeting' ? <div className="mb-10 bg-sky-950/50 border border-sky-700 rounded-2xl p-8 text-center"><p className="text-2xl font-black text-sky-200">Pitch Meeting</p><p className="text-zinc-400 mt-2">Players are allocating {currentQuestion.pitchPoints} points between the two pitches.</p></div> : <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
               {currentQuestion.options.slice(0, currentQuestion.gameType === 'liar-liar' ? 2 : 4).map((opt, idx) => {
                 const optLetter = ['A', 'B', 'C', 'D'][idx];
                 const optColors = { A: 'bg-red-600', B: 'bg-blue-600', C: 'bg-yellow-600', D: 'bg-green-600' };
@@ -608,7 +617,11 @@ export default function MasterHostDashboard() {
           <div className="max-w-3xl mx-auto text-center space-y-6"><p className="text-[#B8C22E] font-bold uppercase tracking-widest">Word Scramble recap</p><div className="grid md:grid-cols-3 gap-3 text-left">{[['Longest word', answerBreakdown.highlights.longestWord, (summary) => summary.longestWord], ['Most words', answerBreakdown.highlights.mostWords, (summary) => `${summary.wordCount} words`], ['Most points', answerBreakdown.highlights.mostPoints, (summary) => `${summary.pointsEarned} pts`]].map(([label, winners, detail]) => <div key={label} className="bg-zinc-900 border border-[#B8C22E] rounded-2xl p-4"><p className="text-xs uppercase tracking-widest text-[#B8C22E] font-bold mb-2">{label}</p>{winners.length ? winners.map((winner) => <p key={winner.playerId} className="text-white font-bold">{winner.emoji} {winner.name}<span className="block text-[#2A97CE] text-sm mt-1">{detail(winner)}</span></p>) : <p className="text-zinc-500">No words found</p>}</div>)}</div><div className="max-h-80 overflow-y-auto space-y-3 text-left pr-2">{[...answerBreakdown.summaries].sort((a, b) => b.pointsEarned - a.pointsEarned).map((summary) => <div key={summary.playerId} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4"><div className="flex justify-between gap-4"><span className="font-bold text-white">{summary.emoji} {summary.name} <span className="text-zinc-400">• {summary.wordCount} words</span></span><span className="font-mono text-[#2A97CE]">+{summary.pointsEarned}</span></div><p className="text-zinc-400 text-sm mt-2 break-words">{summary.words.join(', ') || 'No valid words'}</p>{summary.uniqueWords.length > 0 && <p className="text-[#B8C22E] text-xs font-bold mt-2">Unique: {summary.uniqueWords.join(', ')} (+{summary.uniqueBonus})</p>}</div>)}</div>{answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}</div>
         )}
 
-        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && answerBreakdown.gameType !== 'word-scramble' && (
+        {view === 'answer-reveal' && answerBreakdown?.gameType === 'pitch-meeting' && (
+          <div className="max-w-3xl mx-auto text-center space-y-7"><p className="text-sky-300 font-bold uppercase tracking-widest">Pitch Meeting scoreboard</p><h2 className="text-3xl font-black text-white">{answerBreakdown.questionText}</h2><p className="text-zinc-400">{answerBreakdown.totalAnswers} players allocated {answerBreakdown.pitchPoints} points each</p><div className="space-y-5">{['A', 'B'].map((key, index) => { const score = answerBreakdown.roundScores[key]; const max = Math.max(1, answerBreakdown.roundScores.A, answerBreakdown.roundScores.B); return <div key={key} className="text-left"><div className="flex justify-between font-bold mb-2"><span className={index === 0 ? 'text-red-300' : 'text-blue-300'}>{answerBreakdown.options[index]}</span><span className="text-white">{score.toLocaleString()} pts</span></div><div className="h-8 bg-zinc-900 rounded-full overflow-hidden"><div className={index === 0 ? 'h-full bg-red-500 transition-all duration-1000' : 'h-full bg-blue-500 transition-all duration-1000 delay-1000'} style={{ width: `${(score / max) * 100}%` }} /></div></div>; })}</div>{answerBreakdown.isLastQuestion ? <button onClick={revealPitchWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winning Pitch</button> : <button onClick={nextQuestion} className="bg-sky-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Next Pitch</button>}</div>
+        )}
+
+        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && answerBreakdown.gameType !== 'word-scramble' && answerBreakdown.gameType !== 'pitch-meeting' && (
           <div>
             {answerBreakdown.isLastQuestion && (
               <div className="mb-6 bg-amber-950/80 border border-amber-500 text-amber-200 px-5 py-3 rounded-2xl font-bold text-center">
@@ -728,7 +741,9 @@ export default function MasterHostDashboard() {
           <div className="max-w-3xl mx-auto text-center py-8">
             <p className="text-2xl md:text-3xl font-bold text-zinc-400 mb-10 tracking-wide">The winner is...</p>
             <div className="min-h-48 flex flex-col items-center justify-center mb-12">
-              {showWinnerName && winnerReveal.winners.length > 0 ? (
+              {showWinnerName && winnerReveal.gameType === 'pitch-meeting' ? (
+                <div className="space-y-4">{winnerReveal.winners.length > 1 && <h1 className="text-5xl md:text-7xl font-black text-white">It&apos;s a tie!</h1>}{winnerReveal.winningGroups.map((group, index) => <div key={index}><p className="text-2xl font-bold text-sky-300">{group.score.toLocaleString()}</p><p className="text-zinc-300 mt-2">{group.options.join(' • ')}</p></div>)}</div>
+              ) : showWinnerName && winnerReveal.winners.length > 0 ? (
                 <div className="space-y-6">
                   {winnerReveal.winners.map((w) => (
                     <div key={w.id} className="flex flex-col items-center gap-3">
@@ -743,8 +758,8 @@ export default function MasterHostDashboard() {
               )}
             </div>
             {showWinnerName && (
-              <button onClick={showFinalScores} className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-xl transition">
-                Show Final Scoreboard
+              <button onClick={winnerReveal.gameType === 'pitch-meeting' ? endGame : showFinalScores} className="bg-purple-600 hover:bg-purple-500 text-white font-bold text-lg px-8 py-4 rounded-2xl shadow-xl transition">
+                {winnerReveal.gameType === 'pitch-meeting' ? 'End Pitch Meeting' : 'Show Final Scoreboard'}
               </button>
             )}
           </div>
@@ -803,7 +818,7 @@ export default function MasterHostDashboard() {
               />
               <label className="block text-zinc-300 font-semibold mt-4 mb-2">Game Type</label>
               <select value={gameType} onChange={(e) => { const type = e.target.value; setGameType(type); setQuestions([newQuestion(type)]); }} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white">
-                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option><option value="autocomplete-trivia">Autocomplete Trivia</option><option value="word-scramble">Word Scramble</option>
+                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option><option value="autocomplete-trivia">Autocomplete Trivia</option><option value="word-scramble">Word Scramble</option><option value="pitch-meeting">Pitch Meeting</option>
               </select>
             </div>
 
@@ -833,7 +848,7 @@ export default function MasterHostDashboard() {
 
                 {gameType === 'word-scramble' && <div className="mb-4 rounded-xl border border-[#B8C22E] bg-[#B8C22E]/10 p-4"><label className="block font-bold text-[#B8C22E] mb-2">Letters for this round</label><input type="text" value={q.scrambleLetters || ''} onChange={(e) => handleQuestionChange(qIndex, 'scrambleLetters', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="e.g. TRIANGLE" className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-[#B8C22E] uppercase tracking-[0.35em] font-black" /><p className="text-zinc-400 text-sm mt-2">Players can use each letter only as many times as it appears here. Standard dictionary words, including plurals and inflections, are allowed.</p></div>}
 
-                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'word-scramble' ? <div className="mb-4 rounded-xl border border-[#B8C22E] bg-[#B8C22E]/10 p-4 text-[#B8C22E]"><p className="font-bold">Word Scramble</p><p className="text-sm mt-1">Players make as many valid words as they can before time runs out. Default time is 90 seconds.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>True</strong> or <strong>False</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
+                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'pitch-meeting' ? <div className="space-y-3 mb-4"><p className="text-sky-300 font-bold">Name the two pitches and set the points each player allocates.</p>{q.options.map((option, index) => <input key={index} type="text" placeholder={`Option ${index === 0 ? 'A' : 'B'}`} value={option} onChange={(e) => handleOptionChange(qIndex, index, e.target.value)} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" />)}<label className="block text-sm text-zinc-300">Points to allocate<input type="number" min="2" step="2" value={q.pitchPoints} onChange={(e) => handleQuestionChange(qIndex, 'pitchPoints', Number(e.target.value))} className="mt-1 w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label></div> : gameType === 'word-scramble' ? <div className="mb-4 rounded-xl border border-[#B8C22E] bg-[#B8C22E]/10 p-4 text-[#B8C22E]"><p className="font-bold">Word Scramble</p><p className="text-sm mt-1">Players make as many valid words as they can before time runs out. Default time is 90 seconds.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>True</strong> or <strong>False</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
                   {gameType !== 'autocomplete-trivia' && q.options.map((opt, optIndex) => {
                     const optLetter = ['A', 'B', 'C', 'D'][optIndex];
                     const badgeColors = { A: 'bg-red-500/20 text-red-400 border-red-500/30', B: 'bg-blue-500/20 text-blue-400 border-blue-500/30', C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', D: 'bg-green-500/20 text-green-400 border-green-500/30' };

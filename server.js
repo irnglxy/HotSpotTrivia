@@ -34,6 +34,7 @@ ensureColumn('questions', 'herd_mode', "TEXT DEFAULT 'most'");
 ensureColumn('questions', 'simon_sequence', 'TEXT');
 ensureColumn('questions', 'autocomplete_answers', 'TEXT');
 ensureColumn('questions', 'scramble_letters', 'TEXT');
+ensureColumn('questions', 'pitch_points', 'INTEGER');
 
 app.prepare().then(() => {
   const httpServer = createServer(handler);
@@ -59,6 +60,7 @@ app.prepare().then(() => {
     questionExpired: false,
     answersThisRound: {},
     scrambleWordsThisRound: {},
+    pitchScores: { A: 0, B: 0 },
     previousRanks: null,
     pickerRun: null,
     pickerTimer: null,
@@ -192,6 +194,7 @@ app.prepare().then(() => {
       partyState.questions = stmt.all(gameId);
       partyState.currentQuestionIndex = 0;
       partyState.previousRanks = null;
+      partyState.pitchScores = { A: 0, B: 0 };
       partyState.status = 'lobby';
 
       io.to(MASTER_ROOM).emit('game-loaded', { 
@@ -269,6 +272,8 @@ app.prepare().then(() => {
       revealWinner(io, partyState);
     });
 
+    socket.on('reveal-pitch-winner', () => revealPitchWinner(io, partyState));
+
     // After the winner is shown, host opens the full standings
     socket.on('show-final-scores', () => {
       showFinalScores(io, partyState);
@@ -300,12 +305,15 @@ app.prepare().then(() => {
       const isFollowTheHerd = q.game_type === 'follow-the-herd';
       const isSimonSays = q.game_type === 'simon-says';
       const isAutocompleteTrivia = q.game_type === 'autocomplete-trivia';
+      const isPitchMeeting = q.game_type === 'pitch-meeting';
       const numericAnswer = Number(answer);
       if (isShotInTheDark && (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max)) return;
       const simonSequence = isSimonSays ? JSON.parse(q.simon_sequence || '[]') : [];
       if (isSimonSays && (!Array.isArray(answer) || simonSequence.length === 0 || answer.length !== simonSequence.length || answer.some((color) => !['red', 'green', 'blue', 'orange'].includes(color)))) return;
       const autocompleteAnswers = isAutocompleteTrivia ? JSON.parse(q.autocomplete_answers || '[]') : [];
       if (isAutocompleteTrivia && (!autocompleteAnswers.includes(answer) || !q.correct_answer)) return;
+      const pitchPoints = q.pitch_points || 100;
+      if (isPitchMeeting && (!Number.isInteger(numericAnswer) || numericAnswer < 0 || numericAnswer > pitchPoints)) return;
 
       const timeTaken = (Date.now() - partyState.questionStartTime) / 1000;
       const timeLimit = q.time_limit || 30;
@@ -319,10 +327,10 @@ app.prepare().then(() => {
         ? (correctSimonColors * 50) + (isCorrect ? 250 + Math.round(250 * Math.max(0, 1 - (timeTaken / timeLimit))) : 0)
         : isCorrect ? Math.round(500 + (500 * Math.max(0, 1 - (timeTaken / timeLimit)))) : 0;
 
-      partyState.answersThisRound[socket.id] = { answer: isShotInTheDark ? numericAnswer : answer, isCorrect, pointsEarned, timeTaken };
+      partyState.answersThisRound[socket.id] = { answer: isShotInTheDark || isPitchMeeting ? numericAnswer : answer, isCorrect, pointsEarned, timeTaken };
 
       const player = partyState.players.find(p => p.id === socket.id);
-      if (player && !isShotInTheDark && !isFollowTheHerd) {
+      if (player && !isShotInTheDark && !isFollowTheHerd && !isPitchMeeting) {
         player.score += pointsEarned;
       }
 
@@ -413,6 +421,7 @@ function buildQuestionPayload(partyState, q) {
     simonSequenceLength: q.game_type === 'simon-says' ? JSON.parse(q.simon_sequence || '[]').length : undefined,
     autocompleteAnswers: q.game_type === 'autocomplete-trivia' ? JSON.parse(q.autocomplete_answers || '[]') : undefined,
     scrambleLetters: gameType === 'word-scramble' ? (q.scramble_letters || '').toUpperCase() : undefined,
+    pitchPoints: gameType === 'pitch-meeting' ? (q.pitch_points || 100) : undefined,
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
@@ -530,6 +539,25 @@ function revealAnswers(io, partyState) {
     return;
   }
 
+  if (q.game_type === 'pitch-meeting') {
+    const pitchPoints = q.pitch_points || 100;
+    const roundA = Object.values(partyState.answersThisRound).reduce((total, entry) => total + entry.answer, 0);
+    const roundB = (Object.keys(partyState.answersThisRound).length * pitchPoints) - roundA;
+    partyState.pitchScores.A += roundA;
+    partyState.pitchScores.B += roundB;
+    partyState.status = 'answer-reveal';
+    const payload = {
+      gameType: 'pitch-meeting', questionText: q.question_text, options: [q.option_a, q.option_b], pitchPoints,
+      roundScores: { A: roundA, B: roundB }, totalScores: { ...partyState.pitchScores },
+      totalAnswers: Object.keys(partyState.answersThisRound).length, totalPlayers: partyState.players.length,
+      questionNumber: partyState.currentQuestionIndex + 1, totalQuestions: partyState.questions.length,
+      isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+    };
+    partyState.lastBreakdown = payload;
+    io.to('PARTY').emit('answer-breakdown', payload);
+    return;
+  }
+
   partyState.status = 'answer-reveal';
   const counts = { A: 0, B: 0, C: 0, D: 0 };
   Object.values(partyState.answersThisRound).forEach((entry) => {
@@ -635,6 +663,8 @@ function buildRoundResultsPayload(partyState, q) {
     simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
     autocompleteAnswers: q.autocomplete_answers ? JSON.parse(q.autocomplete_answers) : [],
     scrambleLetters: q.scramble_letters || '',
+    pitchPoints: q.pitch_points || 100,
+    pitchScores: { ...partyState.pitchScores },
     players: partyState.players.map((player) => ({
       ...player,
       rankChange: partyState.previousRanks ? partyState.previousRanks.get(player.id) - currentRanks.get(player.id) : null
@@ -685,6 +715,24 @@ function revealWinner(io, partyState) {
   io.to("PARTY").emit('winner-reveal', partyState.lastWinner);
 }
 
+function revealPitchWinner(io, partyState) {
+  if (partyState.status !== 'answer-reveal') return;
+  const q = partyState.questions[partyState.currentQuestionIndex];
+  if (q.game_type !== 'pitch-meeting') return;
+  partyState.status = 'winner-reveal';
+  const top = Math.max(partyState.pitchScores.A, partyState.pitchScores.B);
+  const winners = ['A', 'B'].filter((key) => partyState.pitchScores[key] === top);
+  partyState.lastWinner = {
+    gameType: 'pitch-meeting', scores: { ...partyState.pitchScores }, winners,
+    winningGroups: winners.map((key) => ({
+      key,
+      score: partyState.pitchScores[key],
+      options: partyState.questions.map((question) => key === 'A' ? question.option_a : question.option_b)
+    }))
+  };
+  io.to('PARTY').emit('winner-reveal', partyState.lastWinner);
+}
+
 function showFinalScores(io, partyState) {
   if (partyState.status !== 'winner-reveal') return;
   partyState.status = 'game-over';
@@ -694,7 +742,8 @@ function showFinalScores(io, partyState) {
 }
 
 function endGame(io, partyState) {
-  if (partyState.status !== 'game-over' && partyState.status !== 'picker-result') return;
+  const isPitchWinnerReveal = partyState.status === 'winner-reveal' && partyState.questions[partyState.currentQuestionIndex]?.game_type === 'pitch-meeting';
+  if (partyState.status !== 'game-over' && partyState.status !== 'picker-result' && !isPitchWinnerReveal) return;
   partyState.status = 'lobby';
   partyState.currentGameId = null;
   partyState.questions = [];

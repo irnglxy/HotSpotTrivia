@@ -17,8 +17,8 @@ export async function POST(request) {
     const gameId = gameResult.lastInsertRowid;
 
     const insertQuestion = db.prepare(`
-      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, time_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, time_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((qs) => {
@@ -39,6 +39,7 @@ export async function POST(request) {
           Array.isArray(q.simonSequence) ? JSON.stringify(q.simonSequence) : null,
           Array.isArray(q.autocompleteAnswers) ? JSON.stringify(q.autocompleteAnswers) : null,
           typeof q.scrambleLetters === 'string' ? q.scrambleLetters.replace(/[^a-z]/gi, '').toUpperCase() : null,
+          q.pitchPoints ?? null,
           q.timeLimit || 15
         );
       }
@@ -83,6 +84,7 @@ export async function GET(request) {
         simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
         autocompleteAnswers: q.autocomplete_answers ? JSON.parse(q.autocomplete_answers) : [],
         scrambleLetters: q.scramble_letters || '',
+        pitchPoints: q.pitch_points ?? 100,
         timeLimit: q.time_limit
       }));
 
@@ -143,8 +145,8 @@ export async function PUT(request) {
     db.prepare(`DELETE FROM questions WHERE game_id = ?`).run(id);
 
     const insertQuestion = db.prepare(`
-      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, time_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, time_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((qs) => {
@@ -165,6 +167,7 @@ export async function PUT(request) {
           Array.isArray(q.simonSequence) ? JSON.stringify(q.simonSequence) : null,
           Array.isArray(q.autocompleteAnswers) ? JSON.stringify(q.autocompleteAnswers) : null,
           typeof q.scrambleLetters === 'string' ? q.scrambleLetters.replace(/[^a-z]/gi, '').toUpperCase() : null,
+          q.pitchPoints ?? null,
           q.timeLimit || 15
         );
       }
