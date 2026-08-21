@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { socket } from '@/lib/socket';
 
 const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
@@ -75,6 +75,7 @@ export default function MasterHostDashboard() {
   const [loginUsername, setLoginUsername] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
+  const importInputRef = useRef(null);
 
   useEffect(() => {
     fetch('/api/auth/status').then((response) => response.json()).then((data) => setAuthStatus(data.authenticated ? 'authenticated' : 'unauthenticated')).catch(() => setAuthStatus('unauthenticated'));
@@ -238,6 +239,25 @@ export default function MasterHostDashboard() {
     if (!response.ok) fetchGames();
   };
 
+  const exportPlaylist = async () => {
+    const response = await fetch('/api/playlist');
+    if (!response.ok) return alert('Could not export the playlist.');
+    const file = new Blob([JSON.stringify(await response.json(), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a'); link.href = url; link.download = `hotspot-playlist-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url);
+  };
+
+  const importPlaylist = async (event) => {
+    const file = event.target.files?.[0]; if (!file) return;
+    try {
+      const response = await fetch('/api/playlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: await file.text() });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      alert(`Added ${data.imported} game${data.imported === 1 ? '' : 's'} to your library.`); fetchGames();
+    } catch (error) { alert(error.message || 'Could not import that playlist.'); }
+    event.target.value = '';
+  };
+
   // Delete a game
   const deleteGame = async (gameId) => {
     if (!confirm("Are you sure you want to delete this game?")) return;
@@ -380,6 +400,9 @@ export default function MasterHostDashboard() {
             <p className="text-zinc-400 text-sm">Players connect at <span className="text-white font-mono underline">/play</span></p>
           </div>
           <div className="flex gap-2">
+            <input ref={importInputRef} type="file" accept="application/json,.json" onChange={importPlaylist} className="hidden" />
+            <button onClick={exportPlaylist} className="px-4 py-2 rounded-xl font-semibold bg-zinc-900 text-zinc-300 hover:text-white">Export Playlist</button>
+            <button onClick={() => importInputRef.current?.click()} className="px-4 py-2 rounded-xl font-semibold bg-zinc-900 text-zinc-300 hover:text-white">Import Playlist</button>
             <button onClick={() => setSignupsOpenForNight(!signupsOpen)} className={`px-4 py-2 rounded-xl font-semibold ${signupsOpen ? 'bg-red-950 text-red-300' : 'bg-emerald-700 text-white'}`}>{signupsOpen ? 'Close Room' : 'Open Room'}</button>
             <button 
               onClick={() => setView('library')}
