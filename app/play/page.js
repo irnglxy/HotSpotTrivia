@@ -391,11 +391,7 @@ export default function PlayPage() {
           ) : !answered && isShotInTheDark ? (
             <div className="space-y-6 text-center">
               <p className="text-zinc-400 font-semibold">Move the slider to make your best estimate:</p>
-              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 flex items-center justify-center gap-6">
-                <div className="text-xs text-zinc-500 h-56 flex flex-col justify-between"><span>{currentQuestion.answerMax}</span><span>{currentQuestion.answerMin}</span></div>
-                <input type="range" min={currentQuestion.answerMin} max={currentQuestion.answerMax} step={currentQuestion.answerStep} value={guessValue ?? currentQuestion.answerMin} onChange={(e) => setGuessValue(Number(e.target.value))} className="h-56 w-8 accent-purple-500 [writing-mode:vertical-lr] [direction:rtl]" />
-                <div className="flex flex-col gap-3"><button onClick={() => adjustGuess(currentQuestion.answerStep)} className="bg-zinc-800 w-14 h-14 rounded-xl font-black text-3xl">+</button><p className="text-4xl font-black text-white w-28">{guessValue}</p><button onClick={() => adjustGuess(-currentQuestion.answerStep)} className="bg-zinc-800 w-14 h-14 rounded-xl font-black text-3xl">−</button></div>
-              </div>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6"><p className="text-5xl font-black text-white">{guessValue}</p><div><input type="range" min={currentQuestion.answerMin} max={currentQuestion.answerMax} step={currentQuestion.answerStep} value={guessValue ?? currentQuestion.answerMin} onChange={(e) => setGuessValue(Number(e.target.value))} className="w-full accent-purple-500" /><div className="flex justify-between text-xs text-zinc-500 mt-2"><span>{currentQuestion.answerMin}</span><span>{currentQuestion.answerMax}</span></div></div><div className="flex justify-center gap-4"><button onClick={() => adjustGuess(-currentQuestion.answerStep)} className="bg-zinc-800 w-16 h-14 rounded-xl font-black text-3xl">−</button><button onClick={() => adjustGuess(currentQuestion.answerStep)} className="bg-zinc-800 w-16 h-14 rounded-xl font-black text-3xl">+</button></div></div>
               <button onClick={() => handleAnswerClick(guessValue)} className="w-full bg-purple-600 hover:bg-purple-500 p-4 rounded-2xl font-black text-lg">Lock In {guessValue}</button>
             </div>
           ) : !answered ? (
