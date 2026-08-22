@@ -71,6 +71,8 @@ export default function PlayPage() {
   const [podiumPlace, setPodiumPlace] = useState(null);
   const [showPodiumPlace, setShowPodiumPlace] = useState(false);
   const [introTitle, setIntroTitle] = useState(null);
+  const [roundPoints, setRoundPoints] = useState(null);
+  const [pickerSelected, setPickerSelected] = useState(false);
 
   useEffect(() => {
     socket.on('next-question', (qData) => {
@@ -95,11 +97,22 @@ export default function PlayPage() {
       setTimelineOrder(normalizedQuestion.gameType === 'timeline' ? shuffledIndexes((normalizedQuestion.timelineItems || []).length).map((index) => normalizedQuestion.timelineItems[index]) : []);
       setPodiumPlace(null);
       setShowPodiumPlace(false);
+      setRoundPoints(null);
+      setPickerSelected(false);
     });
     socket.on('game-intro', (data) => { setGameStarted(true); setCurrentQuestion(null); setIntroTitle(data.title); });
 
     socket.on('answer-breakdown', () => {
       setAnswered(true);
+    });
+
+    socket.on('round-points', ({ roundPoints: points }) => setRoundPoints(points));
+
+    socket.on('player-picker-result', ({ players }) => {
+      setPickerSelected(players.some((player) => player.id === socket.id));
+      setGameStarted(false);
+      setCurrentQuestion(null);
+      setIntroTitle(null);
     });
 
     socket.on('question-time-up', () => {
@@ -138,6 +151,8 @@ export default function PlayPage() {
       setPodiumPlace(null);
       setShowPodiumPlace(false);
       setIntroTitle(null);
+      setRoundPoints(null);
+      setPickerSelected(false);
     });
 
     socket.on('room-closed', () => {
@@ -149,6 +164,8 @@ export default function PlayPage() {
       socket.off('next-question');
       socket.off('game-intro');
       socket.off('answer-breakdown');
+      socket.off('round-points');
+      socket.off('player-picker-result');
       socket.off('question-time-up');
       socket.off('player-answer-state');
       socket.off('winner-reveal');
@@ -210,6 +227,12 @@ export default function PlayPage() {
     const timer = setTimeout(() => setShowPodiumPlace(true), 3000);
     return () => clearTimeout(timer);
   }, [podiumPlace]);
+
+  useEffect(() => {
+    if (roundPoints === null) return;
+    const timer = setTimeout(() => setRoundPoints(null), 3500);
+    return () => clearTimeout(timer);
+  }, [roundPoints]);
 
   const handleJoinOrUpdate = (e) => {
     e.preventDefault();
@@ -327,7 +350,7 @@ export default function PlayPage() {
             </div>
           </button>
           
-          <span className="text-xs uppercase tracking-widest text-emerald-400 font-semibold bg-emerald-950/50 border border-emerald-800 px-3 py-1 rounded-full">
+          <span className="text-xs uppercase tracking-widest text-[#B8C22E] font-semibold bg-[#B8C22E]/10 border border-[#B8C22E]/40 px-3 py-1 rounded-full">
             Connected 🟢
           </span>
         </div>
@@ -414,14 +437,23 @@ export default function PlayPage() {
       )}
 
       {/* 2. WAITING LOBBY SCREEN */}
-      {joined && !isEditingName && !gameStarted && !podiumPlace && (
+      {joined && !isEditingName && !gameStarted && !podiumPlace && !pickerSelected && (
         <div className="text-center my-auto p-6 bg-zinc-900/50 border border-zinc-800 rounded-3xl mx-auto max-w-md w-full">
           <h1 className="text-4xl font-black tracking-tight mb-7"><span className="text-[#2A97CE]">GAME</span>{' '}<span className="text-[#B8C22E]">NIGHT</span></h1>
-          <div className="w-20 h-20 bg-emerald-500/20 border border-emerald-500 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-pulse">
+          <div className="w-20 h-20 bg-[#B8C22E]/15 border border-[#B8C22E] text-[#B8C22E] rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-pulse">
             ✓
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">You&apos;re in the Party!</h2>
           <p className="text-zinc-400 text-sm">Sit tight! Deven and Ned will launch the next game shortly.</p>
+        </div>
+      )}
+
+      {joined && !isEditingName && pickerSelected && (
+        <div className="w-full max-w-md mx-auto my-auto text-center bg-gradient-to-b from-fuchsia-500/25 to-zinc-900 border-2 border-fuchsia-400 rounded-3xl p-10 shadow-2xl shadow-fuchsia-500/20">
+          <div className="text-8xl mb-6 animate-bounce">😃</div>
+          <p className="text-fuchsia-200 uppercase tracking-[0.3em] font-bold mb-3">Player Picker</p>
+          <h2 className="text-5xl font-black text-white mb-4">It&apos;s You!</h2>
+          <p className="text-zinc-300 text-lg">You&apos;ve been chosen.</p>
         </div>
       )}
 
@@ -514,6 +546,17 @@ export default function PlayPage() {
               <div className="h-20 w-20 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
             </>
           )}
+        </div>
+      )}
+
+      {joined && !isEditingName && roundPoints !== null && !podiumPlace && (
+        <div className="fixed inset-0 z-50 bg-zinc-950/90 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="w-full max-w-sm text-center bg-zinc-900 border-2 border-purple-500 rounded-3xl p-9 shadow-2xl shadow-purple-500/20">
+            <p className="text-purple-300 uppercase tracking-[0.25em] text-sm font-black mb-4">This round</p>
+            <p className={`text-7xl font-black ${roundPoints > 0 ? 'text-emerald-400' : 'text-zinc-400'}`}>{roundPoints > 0 ? `+${roundPoints}` : '0'}</p>
+            <p className="text-xl font-bold text-white mt-3">{roundPoints === 1 ? 'point' : 'points'}</p>
+            <p className="text-zinc-400 mt-6">{roundPoints > 0 ? 'Nice work!' : 'No points this round — keep going!'}</p>
+          </div>
         </div>
       )}
 

@@ -516,6 +516,11 @@ function syncPlayerToCurrentState(socket, partyState) {
     return;
   }
 
+  if (partyState.status === 'picker-result' && partyState.pickerRun) {
+    socket.emit('player-picker-result', { players: partyState.pickerRun.selectedPlayers });
+    return;
+  }
+
   if (partyState.status === 'lobby') socket.emit('game-ended');
 }
 
@@ -808,6 +813,17 @@ function showScores(io, partyState) {
   partyState.status = 'results';
 
   const q = partyState.questions[partyState.currentQuestionIndex];
+  if (q.game_type !== 'pitch-meeting' && q.game_type !== 'player-picker') {
+    partyState.players.forEach((player) => {
+      const wordScrambleSummary = q.game_type === 'word-scramble'
+        ? partyState.lastBreakdown?.summaries?.find((summary) => summary.playerId === player.id)
+        : null;
+      const roundPoints = wordScrambleSummary
+        ? wordScrambleSummary.pointsEarned
+        : partyState.answersThisRound[player.id]?.pointsEarned || 0;
+      io.to(player.id).emit('round-points', { roundPoints });
+    });
+  }
   io.to("PARTY").emit('round-results', buildRoundResultsPayload(partyState, q));
 }
 
