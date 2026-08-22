@@ -212,6 +212,7 @@ export default function MasterHostDashboard() {
   const revealPitchWinner = () => socket.emit('reveal-pitch-winner');
   const showFinalScores = () => socket.emit('show-final-scores');
   const endGame = () => socket.emit('end-game');
+  const returnToGameLibrary = () => socket.emit('return-to-library');
   const nextQuestion = () => socket.emit('next-question-btn');
   const startPlayerPicker = () => socket.emit('start-player-picker', { count: pickerCount }, (response) => { if (!response?.success) alert(response?.error || 'Could not start the picker.'); });
   const setSignupsOpenForNight = (open) => socket.emit('set-signups-open', { open }, (response) => { if (response?.success) setSignupsOpen(response.signupsOpen); });
@@ -413,7 +414,7 @@ export default function MasterHostDashboard() {
             <button onClick={() => importInputRef.current?.click()} className="px-4 py-2 rounded-xl font-semibold bg-zinc-900 text-zinc-300 hover:text-white">Import Playlist</button>
             <button onClick={() => setSignupsOpenForNight(!signupsOpen)} className={`px-4 py-2 rounded-xl font-semibold ${signupsOpen ? 'bg-red-950 text-red-300' : 'bg-emerald-700 text-white'}`}>{signupsOpen ? 'Close Room' : 'Open Room'}</button>
             <button 
-              onClick={() => setView('library')}
+              onClick={returnToGameLibrary}
               className={`px-4 py-2 rounded-xl font-semibold transition ${view === 'library' ? 'bg-purple-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:text-white'}`}
             >
               Game Library

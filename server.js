@@ -74,7 +74,7 @@ app.prepare().then(() => {
 
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
-    const hostEvents = new Set(['host-master-lobby', 'set-signups-open', 'rename-player', 'load-game', 'start-game', 'begin-first-question', 'start-player-picker', 'reveal-answers', 'score-shot-in-the-dark', 'show-scores', 'reveal-winner', 'reveal-pitch-winner', 'show-final-scores', 'end-game', 'next-question-btn']);
+    const hostEvents = new Set(['host-master-lobby', 'set-signups-open', 'rename-player', 'load-game', 'start-game', 'begin-first-question', 'start-player-picker', 'reveal-answers', 'score-shot-in-the-dark', 'show-scores', 'reveal-winner', 'reveal-pitch-winner', 'show-final-scores', 'end-game', 'return-to-library', 'next-question-btn']);
     socket.use(([event], next) => {
       if (hostEvents.has(event) && event !== 'host-master-lobby' && socket.id !== partyState.hostId) return;
       next();
@@ -307,6 +307,10 @@ app.prepare().then(() => {
     // Host closes the final scoreboard and returns every screen to the party lobby
     socket.on('end-game', () => {
       endGame(io, partyState);
+    });
+
+    socket.on('return-to-library', () => {
+      returnToLibrary(io, partyState);
     });
 
     // Host clicks "Next Question"
@@ -881,6 +885,10 @@ function showFinalScores(io, partyState) {
 function endGame(io, partyState) {
   const isPitchWinnerReveal = partyState.status === 'winner-reveal' && partyState.questions[partyState.currentQuestionIndex]?.game_type === 'pitch-meeting';
   if (partyState.status !== 'game-over' && partyState.status !== 'picker-result' && !isPitchWinnerReveal) return;
+  returnToLibrary(io, partyState);
+}
+
+function returnToLibrary(io, partyState) {
   partyState.status = 'lobby';
   partyState.currentGameId = null;
   partyState.questions = [];
@@ -889,6 +897,8 @@ function endGame(io, partyState) {
   partyState.scrambleWordsThisRound = {};
   partyState.previousRanks = null;
   partyState.pickerRun = null;
+  clearTimeout(partyState.questionTimer);
+  clearTimeout(partyState.introTimer);
   clearTimeout(partyState.pickerTimer);
   partyState.lastBreakdown = null;
   partyState.lastWinner = null;
