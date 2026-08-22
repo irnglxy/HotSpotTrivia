@@ -18,10 +18,10 @@ export async function POST(request) {
     if (playlist?.format !== 'hotspot-playlist' || !Array.isArray(playlist.games)) throw new Error('That is not a Hot Spot playlist file.');
     const nextOrder = db.prepare('SELECT COALESCE(MAX(display_order), 0) AS current_order FROM games').get().current_order;
     const insertGame = db.prepare('INSERT INTO games (title, game_type, display_order) VALUES (?, ?, ?)');
-    const insertQuestion = db.prepare('INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, time_limit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const insertQuestion = db.prepare('INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, timeline_items, timeline_top_label, timeline_bottom_label, time_limit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     db.transaction(() => playlist.games.forEach((game, gameIndex) => {
       const gameId = insertGame.run(game.title || 'Untitled Game', game.game_type || 'trivia', nextOrder + gameIndex + 1).lastInsertRowid;
-      (game.questions || []).forEach((question) => insertQuestion.run(gameId, question.question_text, question.option_a, question.option_b, question.option_c, question.option_d, question.correct_answer, question.correct_number, question.answer_min, question.answer_max, question.answer_step, question.herd_mode || 'most', question.simon_sequence, question.autocomplete_answers, question.scramble_letters, question.pitch_points, question.time_limit || 15));
+      (game.questions || []).forEach((question) => insertQuestion.run(gameId, question.question_text, question.option_a, question.option_b, question.option_c, question.option_d, question.correct_answer, question.correct_number, question.answer_min, question.answer_max, question.answer_step, question.herd_mode || 'most', question.simon_sequence, question.autocomplete_answers, question.scramble_letters, question.pitch_points, question.timeline_items, question.timeline_top_label, question.timeline_bottom_label, question.time_limit || 15));
     }))();
     return NextResponse.json({ success: true, imported: playlist.games.length });
   } catch (error) {

@@ -21,8 +21,8 @@ export async function POST(request) {
     const gameId = gameResult.lastInsertRowid;
 
     const insertQuestion = db.prepare(`
-      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, time_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, timeline_items, timeline_top_label, timeline_bottom_label, time_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((qs) => {
@@ -44,6 +44,9 @@ export async function POST(request) {
           Array.isArray(q.autocompleteAnswers) ? JSON.stringify(q.autocompleteAnswers) : null,
           typeof q.scrambleLetters === 'string' ? q.scrambleLetters.replace(/[^a-z]/gi, '').toUpperCase() : null,
           q.pitchPoints ?? null,
+          Array.isArray(q.timelineItems) ? JSON.stringify(q.timelineItems) : null,
+          q.timelineTopLabel || null,
+          q.timelineBottomLabel || null,
           q.timeLimit || 15
         );
       }
@@ -90,6 +93,9 @@ export async function GET(request) {
         autocompleteAnswers: q.autocomplete_answers ? JSON.parse(q.autocomplete_answers) : [],
         scrambleLetters: q.scramble_letters || '',
         pitchPoints: q.pitch_points ?? 100,
+        timelineItems: q.timeline_items ? JSON.parse(q.timeline_items) : [],
+        timelineTopLabel: q.timeline_top_label || '',
+        timelineBottomLabel: q.timeline_bottom_label || '',
         timeLimit: q.time_limit
       }));
 
@@ -152,8 +158,8 @@ export async function PUT(request) {
     db.prepare(`DELETE FROM questions WHERE game_id = ?`).run(id);
 
     const insertQuestion = db.prepare(`
-      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, time_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, timeline_items, timeline_top_label, timeline_bottom_label, time_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((qs) => {
@@ -175,6 +181,9 @@ export async function PUT(request) {
           Array.isArray(q.autocompleteAnswers) ? JSON.stringify(q.autocompleteAnswers) : null,
           typeof q.scrambleLetters === 'string' ? q.scrambleLetters.replace(/[^a-z]/gi, '').toUpperCase() : null,
           q.pitchPoints ?? null,
+          Array.isArray(q.timelineItems) ? JSON.stringify(q.timelineItems) : null,
+          q.timelineTopLabel || null,
+          q.timelineBottomLabel || null,
           q.timeLimit || 15
         );
       }

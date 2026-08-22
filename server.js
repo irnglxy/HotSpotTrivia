@@ -36,6 +36,9 @@ ensureColumn('questions', 'simon_sequence', 'TEXT');
 ensureColumn('questions', 'autocomplete_answers', 'TEXT');
 ensureColumn('questions', 'scramble_letters', 'TEXT');
 ensureColumn('questions', 'pitch_points', 'INTEGER');
+ensureColumn('questions', 'timeline_items', 'TEXT');
+ensureColumn('questions', 'timeline_top_label', 'TEXT');
+ensureColumn('questions', 'timeline_bottom_label', 'TEXT');
 
 app.prepare().then(() => {
   const httpServer = createServer(handler);
@@ -328,6 +331,7 @@ app.prepare().then(() => {
       const isSimonSays = q.game_type === 'simon-says';
       const isAutocompleteTrivia = q.game_type === 'autocomplete-trivia';
       const isPitchMeeting = q.game_type === 'pitch-meeting';
+      const isTimeline = q.game_type === 'timeline';
       const numericAnswer = Number(answer);
       if (isShotInTheDark && (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max)) return;
       const simonSequence = isSimonSays ? JSON.parse(q.simon_sequence || '[]') : [];
@@ -336,20 +340,28 @@ app.prepare().then(() => {
       if (isAutocompleteTrivia && (!autocompleteAnswers.includes(answer) || !q.correct_answer)) return;
       const pitchPoints = q.pitch_points || 100;
       if (isPitchMeeting && (!Number.isInteger(numericAnswer) || numericAnswer < 0 || numericAnswer > pitchPoints)) return;
+      const timelineItems = isTimeline ? JSON.parse(q.timeline_items || '[]') : [];
+      if (isTimeline && (!Array.isArray(answer) || timelineItems.length !== 6 || answer.length !== timelineItems.length || new Set(answer).size !== answer.length || answer.some((item) => !timelineItems.includes(item)))) return;
 
       const timeTaken = (Date.now() - partyState.questionStartTime) / 1000;
       const timeLimit = q.time_limit || 30;
-      const isCorrect = isSimonSays
-        ? answer.every((color, index) => color === simonSequence[index])
-        : !isShotInTheDark && !isFollowTheHerd && answer === q.correct_answer;
       const correctSimonColors = isSimonSays
         ? answer.filter((color, index) => color === simonSequence[index]).length
         : 0;
+      const correctTimelineItems = isTimeline
+        ? answer.filter((item, index) => item === timelineItems[index]).length
+        : 0;
+      const isCorrect = isSimonSays
+        ? answer.every((color, index) => color === simonSequence[index])
+        : isTimeline ? correctTimelineItems === timelineItems.length
+        : !isShotInTheDark && !isFollowTheHerd && answer === q.correct_answer;
       const pointsEarned = isSimonSays
         ? (correctSimonColors * 50) + (isCorrect ? 250 + Math.round(250 * Math.max(0, 1 - (timeTaken / timeLimit))) : 0)
+        : isTimeline ? (correctTimelineItems * 100) + (correctTimelineItems === timelineItems.length ? 400 : 0) + Math.round(200 * Math.max(0, 1 - (timeTaken / timeLimit)))
         : isCorrect ? Math.round(500 + (500 * Math.max(0, 1 - (timeTaken / timeLimit)))) : 0;
 
       partyState.answersThisRound[socket.id] = { answer: isShotInTheDark || isPitchMeeting ? numericAnswer : answer, isCorrect, pointsEarned, timeTaken };
+      if (isTimeline) partyState.answersThisRound[socket.id].correctItems = correctTimelineItems;
 
       const player = partyState.players.find(p => p.id === socket.id);
       if (player && !isShotInTheDark && !isFollowTheHerd && !isPitchMeeting) {
@@ -444,6 +456,9 @@ function buildQuestionPayload(partyState, q) {
     autocompleteAnswers: q.game_type === 'autocomplete-trivia' ? JSON.parse(q.autocomplete_answers || '[]') : undefined,
     scrambleLetters: gameType === 'word-scramble' ? (q.scramble_letters || '').toUpperCase() : undefined,
     pitchPoints: gameType === 'pitch-meeting' ? (q.pitch_points || 100) : undefined,
+    timelineItems: gameType === 'timeline' ? JSON.parse(q.timeline_items || '[]') : undefined,
+    timelineTopLabel: gameType === 'timeline' ? q.timeline_top_label : undefined,
+    timelineBottomLabel: gameType === 'timeline' ? q.timeline_bottom_label : undefined,
     timeLimit: q.time_limit || 15,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
@@ -616,6 +631,32 @@ function revealAnswers(io, partyState) {
     return;
   }
 
+  if (q.game_type === 'timeline') {
+    partyState.status = 'answer-reveal';
+    const correctOrder = JSON.parse(q.timeline_items || '[]');
+    const submissions = Object.entries(partyState.answersThisRound).map(([playerId, entry]) => {
+      const player = partyState.players.find((candidate) => candidate.id === playerId);
+      return {
+        playerId,
+        name: player?.name || 'Player',
+        emoji: player?.emoji || '🎮',
+        correctItems: entry.correctItems || 0,
+        pointsEarned: entry.pointsEarned || 0,
+        order: entry.answer
+      };
+    });
+    const payload = {
+      gameType: 'timeline', questionText: q.question_text, correctOrder,
+      topLabel: q.timeline_top_label, bottomLabel: q.timeline_bottom_label,
+      submissions, totalAnswers: submissions.length, totalPlayers: partyState.players.length,
+      questionNumber: partyState.currentQuestionIndex + 1, totalQuestions: partyState.questions.length,
+      isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+    };
+    partyState.lastBreakdown = payload;
+    io.to('PARTY').emit('answer-breakdown', payload);
+    return;
+  }
+
   if (q.game_type === 'pitch-meeting') {
     const pitchPoints = q.pitch_points || 100;
     const roundA = Object.values(partyState.answersThisRound).reduce((total, entry) => total + entry.answer, 0);
@@ -741,6 +782,9 @@ function buildRoundResultsPayload(partyState, q) {
     autocompleteAnswers: q.autocomplete_answers ? JSON.parse(q.autocomplete_answers) : [],
     scrambleLetters: q.scramble_letters || '',
     pitchPoints: q.pitch_points || 100,
+    timelineItems: q.timeline_items ? JSON.parse(q.timeline_items) : [],
+    timelineTopLabel: q.timeline_top_label || '',
+    timelineBottomLabel: q.timeline_bottom_label || '',
     pitchScores: { ...partyState.pitchScores },
     players: partyState.players.map((player) => ({
       ...player,

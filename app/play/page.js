@@ -1,6 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { DndContext, KeyboardSensor, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { socket } from '@/lib/socket';
 
 // Expanded list of emojis for large crowds
@@ -22,6 +25,24 @@ const shuffledIndexes = (length) => {
 };
 
 const createPlayerKey = () => globalThis.crypto?.randomUUID?.() || `player-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+function TimelineSortableItem({ item, position }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item });
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      style={{ transform: CSS.Transform.toString(transform), transition, touchAction: 'none' }}
+      className={`w-full min-h-14 rounded-2xl border px-4 py-3 text-left font-bold text-white flex items-center gap-3 shadow-lg ${isDragging ? 'bg-purple-600 border-purple-300 opacity-80 z-10' : 'bg-zinc-900 border-zinc-700 active:bg-zinc-800'}`}
+      {...attributes}
+      {...listeners}
+    >
+      <span className="w-8 h-8 shrink-0 rounded-lg bg-purple-500/25 text-purple-200 flex items-center justify-center font-mono text-sm">{position}</span>
+      <span className="flex-1 leading-snug">{item}</span>
+      <span className="text-zinc-500 text-xl" aria-hidden="true">⠿</span>
+    </button>
+  );
+}
 
 export default function PlayPage() {
   const [playerName, setPlayerName] = useState('');
@@ -46,6 +67,7 @@ export default function PlayPage() {
   const [scrambleLetterOrder, setScrambleLetterOrder] = useState([]);
   const [scrambleWords, setScrambleWords] = useState([]);
   const [scrambleError, setScrambleError] = useState('');
+  const [timelineOrder, setTimelineOrder] = useState([]);
   const [podiumPlace, setPodiumPlace] = useState(null);
   const [showPodiumPlace, setShowPodiumPlace] = useState(false);
   const [introTitle, setIntroTitle] = useState(null);
@@ -70,6 +92,7 @@ export default function PlayPage() {
       setScrambleLetterOrder(isScrambleQuestion ? shuffledIndexes(normalizedQuestion.scrambleLetters.length) : []);
       setScrambleWords([]);
       setScrambleError('');
+      setTimelineOrder(normalizedQuestion.gameType === 'timeline' ? shuffledIndexes((normalizedQuestion.timelineItems || []).length).map((index) => normalizedQuestion.timelineItems[index]) : []);
       setPodiumPlace(null);
       setShowPodiumPlace(false);
     });
@@ -231,6 +254,17 @@ export default function PlayPage() {
   const isSimonSays = currentQuestion?.gameType === 'simon-says';
   const isAutocompleteTrivia = currentQuestion?.gameType === 'autocomplete-trivia';
   const isWordScramble = currentQuestion?.gameType === 'word-scramble';
+  const isTimeline = currentQuestion?.gameType === 'timeline';
+  const timelineSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleTimelineDragEnd = ({ active, over }) => {
+    if (answered || !over || active.id === over.id) return;
+    setTimelineOrder((items) => arrayMove(items, items.indexOf(active.id), items.indexOf(over.id)));
+  };
 
   const adjustGuess = (amount) => {
     setGuessValue((current) => Math.min(currentQuestion.answerMax, Math.max(currentQuestion.answerMin, Number((current + amount).toFixed(8)))));
@@ -418,6 +452,8 @@ export default function PlayPage() {
               <div className="grid grid-cols-2 gap-3 max-w-64 mx-auto"><button onClick={() => handleSimonColor('red')} className="h-28 rounded-2xl bg-red-600 active:bg-red-700 shadow-xl transition active:scale-95 font-black text-white" aria-label="Red">Red</button><button onClick={() => handleSimonColor('green')} className="h-28 rounded-2xl bg-green-600 active:bg-green-700 shadow-xl transition active:scale-95 font-black text-white" aria-label="Green">Green</button><button onClick={() => handleSimonColor('blue')} className="h-28 rounded-2xl bg-blue-600 active:bg-blue-700 shadow-xl transition active:scale-95 font-black text-white" aria-label="Blue">Blue</button><button onClick={() => handleSimonColor('orange')} className="h-28 rounded-2xl bg-orange-500 active:bg-orange-600 shadow-xl transition active:scale-95 font-black text-white" aria-label="Orange">Orange</button></div>
               {simonInput.length > 0 && <button onClick={() => setSimonInput((sequence) => sequence.slice(0, -1))} className="text-zinc-400 font-bold">Undo last color</button>}
             </div>
+          ) : !answered && isTimeline ? (
+            <div className="space-y-4"><p className="text-center text-purple-300 font-bold">Drag the items into the correct order.</p><div className="rounded-3xl border border-purple-800 bg-purple-950/30 p-4"><p className="text-center text-sm uppercase tracking-widest text-purple-200 font-black mb-3">{currentQuestion.timelineTopLabel}</p><DndContext sensors={timelineSensors} collisionDetection={closestCenter} onDragEnd={handleTimelineDragEnd}><SortableContext items={timelineOrder} strategy={verticalListSortingStrategy}><div className="space-y-2">{timelineOrder.map((item, index) => <TimelineSortableItem key={item} item={item} position={index + 1} />)}</div></SortableContext></DndContext><p className="text-center text-sm uppercase tracking-widest text-purple-200 font-black mt-3">{currentQuestion.timelineBottomLabel}</p></div><button onClick={() => handleAnswerClick(timelineOrder)} className="w-full bg-purple-600 hover:bg-purple-500 text-white p-4 rounded-2xl font-black text-lg">Lock In Order</button></div>
           ) : !answered && isShotInTheDark ? (
             <div className="space-y-6 text-center">
               <p className="text-zinc-400 font-semibold">Move the slider to make your best estimate:</p>
@@ -453,7 +489,7 @@ export default function PlayPage() {
           ) : (
             <div className="text-center py-12 bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
               {isAutocompleteTrivia ? <div className="max-w-full overflow-x-auto whitespace-nowrap bg-teal-950/60 border border-teal-600 text-teal-200 rounded-2xl px-4 py-3 mb-4 text-lg font-bold">{selectedAnswer}</div> : <div className="w-20 h-20 bg-purple-600/20 border border-purple-500 text-purple-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-bounce">
-                {selectedAnswer}
+                {isTimeline ? '✓' : selectedAnswer}
               </div>}
               <h2 className="text-2xl font-bold text-white mb-2">{selectedAnswer ? 'Locked In!' : 'Time is up'}</h2>
               <p className="text-zinc-400">Watch the main host screen for the round results.</p>
