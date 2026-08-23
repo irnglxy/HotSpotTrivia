@@ -73,6 +73,7 @@ export default function PlayPage() {
   const [introTitle, setIntroTitle] = useState(null);
   const [roundPoints, setRoundPoints] = useState(null);
   const [pickerSelected, setPickerSelected] = useState(false);
+  const [playerRemoved, setPlayerRemoved] = useState(false);
 
   useEffect(() => {
     socket.on('next-question', (qData) => {
@@ -113,6 +114,17 @@ export default function PlayPage() {
       setGameStarted(false);
       setCurrentQuestion(null);
       setIntroTitle(null);
+    });
+
+    socket.on('player-removed', () => {
+      setJoined(false);
+      setIsEditingName(false);
+      setGameStarted(false);
+      setCurrentQuestion(null);
+      setIntroTitle(null);
+      setRoundPoints(null);
+      setPickerSelected(false);
+      setPlayerRemoved(true);
     });
 
     socket.on('question-time-up', () => {
@@ -156,9 +168,9 @@ export default function PlayPage() {
     });
 
     socket.on('room-closed', () => {
-      setJoined(false); setGameStarted(false); setCurrentQuestion(null); setRoomClosed(true);
+      setJoined(false); setGameStarted(false); setCurrentQuestion(null); setPlayerRemoved(false); setRoomClosed(true);
     });
-    socket.on('room-opened', () => setRoomClosed(false));
+    socket.on('room-opened', () => { setRoomClosed(false); setPlayerRemoved(false); });
 
     return () => {
       socket.off('next-question');
@@ -166,6 +178,7 @@ export default function PlayPage() {
       socket.off('answer-breakdown');
       socket.off('round-points');
       socket.off('player-picker-result');
+      socket.off('player-removed');
       socket.off('question-time-up');
       socket.off('player-answer-state');
       socket.off('winner-reveal');
@@ -189,6 +202,11 @@ export default function PlayPage() {
       }
       if (!savedProfile.playerName || !savedProfile.playerKey) return;
 
+      setPlayerName(savedProfile.playerName);
+      setSelectedEmoji(savedProfile.emoji || '🎮');
+      setSelectedColor(savedProfile.color || '#a855f7');
+      setPlayerKey(savedProfile.playerKey);
+
       socket.emit('join-master-lobby', {
         playerName: savedProfile.playerName,
         emoji: savedProfile.emoji || '🎮',
@@ -196,11 +214,10 @@ export default function PlayPage() {
         playerKey: savedProfile.playerKey
       }, (response) => {
         if (response?.success) {
-          setPlayerName(savedProfile.playerName);
-          setSelectedEmoji(savedProfile.emoji || '🎮');
-          setSelectedColor(savedProfile.color || '#a855f7');
-          setPlayerKey(savedProfile.playerKey);
           setJoined(true);
+          setPlayerRemoved(false);
+        } else if (response?.error?.includes('removed')) {
+          setPlayerRemoved(true);
         }
       });
     };
@@ -357,7 +374,11 @@ export default function PlayPage() {
       )}
 
       {/* 1. INITIAL LOGIN SCREEN OR QUICK RENAME SCREEN */}
-      {(!joined || isEditingName) && (
+      {!joined && playerRemoved && (
+        <div className="max-w-md w-full mx-auto my-auto bg-rose-950/50 border border-rose-700 p-8 rounded-3xl shadow-2xl text-center"><div className="text-6xl mb-5">👋</div><h1 className="text-3xl font-black text-white mb-3">You&apos;ve been removed</h1><p className="text-rose-100">The host has removed you from this game night.</p></div>
+      )}
+
+      {(!joined || isEditingName) && !playerRemoved && (
         <div className="max-w-md w-full mx-auto my-auto bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
           {roomClosed && <div className="mb-5 text-center bg-red-950 border border-red-700 text-red-200 rounded-xl p-3 font-bold">This room is closed for the night.</div>}
           <h1 className="text-3xl font-extrabold text-purple-400 mb-2 text-center">
@@ -524,7 +545,7 @@ export default function PlayPage() {
                 {isTimeline ? '✓' : selectedAnswer}
               </div>}
               <h2 className="text-2xl font-bold text-white mb-2">{selectedAnswer ? 'Locked In!' : 'Time is up'}</h2>
-              <p className="text-zinc-400">Watch the main host screen for the round results.</p>
+              <p className="text-zinc-400">Watch Deven and Ned for the round results.</p>
             </div>
           )}
         </div>

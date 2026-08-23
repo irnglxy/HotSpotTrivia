@@ -151,7 +151,7 @@ export default function DisplayScreen() {
           <div className="text-center space-y-8">
             <div className="space-y-3">
               <span className="bg-purple-950/80 border border-purple-700 text-purple-300 px-6 py-2 rounded-full text-lg font-bold uppercase tracking-widest inline-block animate-pulse">
-                Welcome to the Party!
+                Welcome to
               </span>
               <h2 className="text-6xl font-black tracking-tight"><span className="text-[#2A97CE]">GAME</span>{' '}<span className="text-[#B8C22E]">NIGHT</span></h2>
             </div>

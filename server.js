@@ -53,6 +53,7 @@ app.prepare().then(() => {
     hostId: null,
     signupsOpen: true,
     players: [], // { id, name, emoji, color, score }
+    removedPlayerKeys: new Set(),
     status: 'lobby', // 'lobby', 'playing', 'results', 'game-over'
     currentGameId: null,
     gameTitle: null,
@@ -74,7 +75,7 @@ app.prepare().then(() => {
 
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
-    const hostEvents = new Set(['host-master-lobby', 'set-signups-open', 'rename-player', 'load-game', 'start-game', 'begin-first-question', 'start-player-picker', 'reveal-answers', 'score-shot-in-the-dark', 'show-scores', 'reveal-winner', 'reveal-pitch-winner', 'show-final-scores', 'end-game', 'return-to-library', 'next-question-btn']);
+    const hostEvents = new Set(['host-master-lobby', 'set-signups-open', 'rename-player', 'remove-player', 'load-game', 'start-game', 'begin-first-question', 'start-player-picker', 'reveal-answers', 'score-shot-in-the-dark', 'show-scores', 'reveal-winner', 'reveal-pitch-winner', 'show-final-scores', 'end-game', 'return-to-library', 'next-question-btn']);
     socket.use(([event], next) => {
       if (hostEvents.has(event) && event !== 'host-master-lobby' && socket.id !== partyState.hostId) return;
       next();
@@ -135,6 +136,10 @@ app.prepare().then(() => {
         callback({ success: false, error: 'The room is closed for the night.' });
         return;
       }
+      if (playerKey && partyState.removedPlayerKeys.has(playerKey)) {
+        callback?.({ success: false, error: 'You have been removed from this game night.' });
+        return;
+      }
       socket.join(MASTER_ROOM);
       
       // A browser keeps its player key, so refreshing it updates the same player.
@@ -181,6 +186,7 @@ app.prepare().then(() => {
         io.to(MASTER_ROOM).emit('room-closed');
         playerIds.forEach((playerId) => io.sockets.sockets.get(playerId)?.leave(MASTER_ROOM));
         partyState.players = [];
+        partyState.removedPlayerKeys.clear();
         io.to(MASTER_ROOM).emit('update-players', { players: [] });
       } else {
         io.emit('room-opened');
@@ -204,6 +210,33 @@ app.prepare().then(() => {
 
       player.name = name;
       io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
+      callback?.({ success: true });
+    });
+
+    socket.on('remove-player', ({ playerId }, callback) => {
+      if (socket.id !== partyState.hostId) {
+        callback?.({ success: false, error: 'Only the host can remove players.' });
+        return;
+      }
+      const player = partyState.players.find((candidate) => candidate.id === playerId);
+      if (!player) {
+        callback?.({ success: false, error: 'That player is no longer in the room.' });
+        return;
+      }
+
+      if (player.playerKey) partyState.removedPlayerKeys.add(player.playerKey);
+      partyState.players = partyState.players.filter((candidate) => candidate.id !== playerId);
+      delete partyState.answersThisRound[playerId];
+      delete partyState.scrambleWordsThisRound[playerId];
+      io.to(playerId).emit('player-removed');
+      io.sockets.sockets.get(playerId)?.leave(MASTER_ROOM);
+      io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
+
+      const question = partyState.questions[partyState.currentQuestionIndex];
+      const totalAnswers = question?.game_type === 'word-scramble'
+        ? Object.values(partyState.scrambleWordsThisRound).reduce((total, words) => total + words.length, 0)
+        : Object.keys(partyState.answersThisRound).length;
+      io.to(partyState.hostId).emit('player-answered-update', { totalAnswers, totalPlayers: partyState.players.length });
       callback?.({ success: true });
     });
 

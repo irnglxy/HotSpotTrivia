@@ -234,6 +234,13 @@ export default function MasterHostDashboard() {
     });
   };
 
+  const removePlayer = (player) => {
+    if (!confirm(`Remove ${player.name} from this game night? They will not be able to rejoin until you close and reopen the room.`)) return;
+    socket.emit('remove-player', { playerId: player.id }, (response) => {
+      if (!response?.success) alert(response?.error || 'Could not remove player.');
+    });
+  };
+
   const moveGame = async (index, direction) => {
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= games.length) return;
@@ -461,6 +468,14 @@ export default function MasterHostDashboard() {
                     >
                       ✏️
                     </button>
+                    <button
+                      onClick={() => removePlayer(player)}
+                      className="text-rose-400 hover:text-rose-200 transition"
+                      title={`Remove ${player.name}`}
+                      aria-label={`Remove ${player.name}`}
+                    >
+                      ✕
+                    </button>
                   </div>
                 ))}
               </div>
@@ -544,6 +559,7 @@ export default function MasterHostDashboard() {
                     >
                       <span className="text-2xl shrink-0">{player.emoji}</span>
                       <span className="truncate text-sm font-medium">{player.name}</span>
+                      <button onClick={() => removePlayer(player)} className="ml-auto text-rose-400 hover:text-rose-200" title={`Remove ${player.name}`} aria-label={`Remove ${player.name}`}>✕</button>
                     </div>
                   ))}
                 </div>
