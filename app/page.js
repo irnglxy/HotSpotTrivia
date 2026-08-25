@@ -777,8 +777,9 @@ export default function MasterHostDashboard() {
             {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
             {roundResults.gameType === 'autocomplete-trivia' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.correctAnswer}</span></p>}
 
-            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl space-y-3 mb-8">
+            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl mb-8">
               <h2 className="text-xl font-bold text-white mb-4">Game Leaderboard</h2>
+              <div className="max-h-[55vh] overflow-y-auto space-y-3 pr-2">
               {[...roundResults.players]
                 .sort((a, b) => b.score - a.score)
                 .map((p, idx) => (
@@ -792,6 +793,7 @@ export default function MasterHostDashboard() {
                     <span className="font-mono text-emerald-400 font-extrabold text-lg">{p.score} pts</span>
                   </div>
               ))}
+              </div>
             </div>
 
             {roundResults.isFinalQuestionNext ? (

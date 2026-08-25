@@ -352,27 +352,27 @@ export default function DisplayScreen() {
 
         {/* STATE 4: ROUND RESULTS & LEADERBOARD */}
         {status === 'results' && roundResults && (
-          <div className="max-w-3xl mx-auto text-center space-y-8">
-            <div className="space-y-2">
-              <h2 className="text-5xl font-black text-purple-400">Round Complete!</h2>
-              {roundResults.gameType === 'trivia' && <p className="text-zinc-400 text-2xl">Correct Answer was: <span className="text-emerald-400 font-extrabold text-3xl">[{roundResults.correctAnswer}]</span></p>}
-              {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 text-2xl">Correct answer: <span className="text-emerald-400 font-extrabold text-3xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
-              {roundResults.gameType === 'autocomplete-trivia' && <p className="text-zinc-400 text-2xl">Correct answer: <span className="text-emerald-400 font-extrabold text-3xl">{roundResults.correctAnswer}</span></p>}
+          <div className="max-w-3xl mx-auto text-center space-y-4">
+            <div className="space-y-1">
+              <h2 className="text-3xl md:text-4xl font-black text-purple-400">Round Complete!</h2>
+              {roundResults.gameType === 'trivia' && <p className="text-zinc-400 text-lg">Correct Answer was: <span className="text-emerald-400 font-extrabold text-xl">[{roundResults.correctAnswer}]</span></p>}
+              {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 text-lg">Correct answer: <span className="text-emerald-400 font-extrabold text-xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
+              {roundResults.gameType === 'autocomplete-trivia' && <p className="text-zinc-400 text-lg">Correct answer: <span className="text-emerald-400 font-extrabold text-xl">{roundResults.correctAnswer}</span></p>}
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-4">
-              <h3 className="text-2xl font-bold text-white mb-6">Current Leaderboard</h3>
+            <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-3xl shadow-2xl space-y-2">
+              <h3 className="text-xl font-bold text-white mb-3">Current Leaderboard</h3>
               {[...roundResults.players]
                 .sort((a, b) => b.score - a.score)
                 .map((p, idx) => (
-                  <div key={p.id} className="flex justify-between items-center bg-zinc-950 p-5 rounded-2xl border border-zinc-800 text-xl">
-                    <div className="flex items-center gap-4">
-                      <span className="font-black text-zinc-500 w-8 text-2xl">#{idx + 1}</span>
+                  <div key={p.id} className="flex justify-between items-center bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 text-base">
+                    <div className="flex items-center gap-3">
+                      <span className="font-black text-zinc-500 w-7 text-lg">#{idx + 1}</span>
                       {p.rankChange !== null && p.rankChange !== 0 && <span className={`font-black ${p.rankChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`} title={`${Math.abs(p.rankChange)} place${Math.abs(p.rankChange) === 1 ? '' : 's'} ${p.rankChange > 0 ? 'up' : 'down'}`}>{p.rankChange > 0 ? (p.rankChange > 10 ? '⇈' : '↑') : (p.rankChange < -10 ? '⇊' : '↓')}</span>}
-                      <span className="text-3xl">{p.emoji}</span>
+                      <span className="text-2xl">{p.emoji}</span>
                       <span className="font-bold text-white">{p.name}</span>
                     </div>
-                    <span className="font-mono text-emerald-400 font-black text-2xl">{p.score} pts</span>
+                    <span className="font-mono text-emerald-400 font-black text-lg">{p.score} pts</span>
                   </div>
               ))}
             </div>
