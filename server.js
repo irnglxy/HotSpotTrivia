@@ -16,7 +16,7 @@ const port = process.env.PORT || 3000; // Cloud hosts assign a dynamic port
 const app = next({ dev, hostname, port });
 const handler = app.getRequestHandler();
 
-const db = new Database('database.sqlite');
+const db = new Database(process.env.DATABASE_PATH || 'database.sqlite');
 
 function ensureColumn(table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
