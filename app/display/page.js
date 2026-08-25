@@ -19,8 +19,12 @@ export default function DisplayScreen() {
   const [pickedPlayers, setPickedPlayers] = useState([]);
 
   useEffect(() => {
-    // Tell server this is the big screen display
-    socket.emit('join-display-screen');
+    // Rejoin after any Socket.IO reconnect so an idle display continues to
+    // receive player, question, and scoreboard updates without a refresh.
+    const joinDisplayScreen = () => socket.emit('join-display-screen');
+    socket.on('connect', joinDisplayScreen);
+    if (socket.connected) joinDisplayScreen();
+    else socket.connect();
 
     socket.on('master-update', (data) => {
       setPlayers(data.players);
@@ -87,7 +91,7 @@ export default function DisplayScreen() {
     socket.on('room-closed', () => { setStatus('lobby'); setPlayers([]); });
 
     return () => {
-      socket.off('join-display-screen');
+      socket.off('connect', joinDisplayScreen);
       socket.off('master-update');
       socket.off('update-players');
       socket.off('game-loaded');
@@ -269,7 +273,7 @@ export default function DisplayScreen() {
         )}
 
         {status === 'answer-reveal' && answerBreakdown?.gameType === 'word-scramble' && (
-          <div className="max-w-5xl mx-auto text-center space-y-8"><p className="text-[#B8C22E] font-bold uppercase tracking-widest">Word Scramble recap</p><div className="grid md:grid-cols-3 gap-5">{[['Longest word', answerBreakdown.highlights.longestWord, (summary) => summary.longestWord], ['Most words', answerBreakdown.highlights.mostWords, (summary) => `${summary.wordCount} words`], ['Most points', answerBreakdown.highlights.mostPoints, (summary) => `${summary.pointsEarned} pts`]].map(([label, winners, detail]) => <div key={label} className="bg-zinc-900 border border-[#B8C22E] rounded-3xl p-6"><p className="text-[#B8C22E] uppercase tracking-widest text-sm font-bold mb-4">{label}</p>{winners.length ? winners.map((winner) => <div key={winner.playerId} className="mb-3 last:mb-0"><p className="text-2xl font-black text-white">{winner.emoji} {winner.name}</p><p className="text-[#2A97CE] text-xl font-bold">{detail(winner)}</p></div>) : <p className="text-zinc-500">No words found</p>}</div>)}</div><div className="grid md:grid-cols-2 gap-4 text-left">{[...answerBreakdown.summaries].sort((a, b) => b.pointsEarned - a.pointsEarned).map((summary) => <div key={summary.playerId} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5"><div className="flex justify-between gap-3"><span className="font-bold text-white text-xl">{summary.emoji} {summary.name}</span><span className="font-mono text-[#2A97CE]">+{summary.pointsEarned}</span></div><p className="text-zinc-400 mt-2">{summary.words.join(', ') || 'No valid words'}</p>{summary.uniqueWords.length > 0 && <p className="text-[#B8C22E] text-sm font-bold mt-2">Unique: {summary.uniqueWords.join(', ')} (+{summary.uniqueBonus})</p>}</div>)}</div></div>
+          <div className="max-w-5xl mx-auto text-center space-y-8"><p className="text-[#B8C22E] font-bold uppercase tracking-widest">Word Scramble recap</p><div className="grid md:grid-cols-3 gap-5">{[['Longest word', answerBreakdown.highlights.longestWord, (summary) => summary.longestWord], ['Most words', answerBreakdown.highlights.mostWords, (summary) => `${summary.wordCount} words`], ['Most points', answerBreakdown.highlights.mostPoints, (summary) => `${summary.pointsEarned} pts`]].map(([label, winners, detail]) => <div key={label} className="bg-zinc-900 border border-[#B8C22E] rounded-3xl p-6"><p className="text-[#B8C22E] uppercase tracking-widest text-sm font-bold mb-4">{label}</p>{winners.length ? winners.map((winner) => <div key={winner.playerId} className="mb-3 last:mb-0"><p className="text-2xl font-black text-white">{winner.emoji} {winner.name}</p><p className="text-[#2A97CE] text-xl font-bold">{detail(winner)}</p></div>) : <p className="text-zinc-500">No words found</p>}</div>)}</div><div className="grid md:grid-cols-2 gap-4 text-left"><p className="md:col-span-2 text-[#B8C22E] text-sm font-bold uppercase tracking-widest">Players with unique words</p>{[...answerBreakdown.summaries].filter((summary) => summary.uniqueWords.length > 0).sort((a, b) => b.pointsEarned - a.pointsEarned).map((summary) => <div key={summary.playerId} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5"><div className="flex justify-between gap-3"><span className="font-bold text-white text-xl">{summary.emoji} {summary.name}</span><span className="font-mono text-[#2A97CE]">+{summary.pointsEarned}</span></div><p className="text-zinc-400 mt-2">{summary.words.join(', ') || 'No valid words'}</p><p className="text-[#B8C22E] text-sm font-bold mt-2">Unique: {summary.uniqueWords.join(', ')} (+{summary.uniqueBonus})</p></div>)}{!answerBreakdown.summaries.some((summary) => summary.uniqueWords.length > 0) && <p className="md:col-span-2 text-zinc-500 py-6">No unique words this round.</p>}</div></div>
         )}
 
         {status === 'answer-reveal' && answerBreakdown?.gameType === 'pitch-meeting' && (
