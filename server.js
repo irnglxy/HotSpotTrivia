@@ -18,6 +18,43 @@ const handler = app.getRequestHandler();
 
 const db = new Database(process.env.DATABASE_PATH || 'database.sqlite');
 
+// A new persistent disk starts with an empty SQLite file. Create the base
+// schema before applying the incremental column migrations below.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS games (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT,
+    game_type TEXT DEFAULT 'trivia'
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_id INTEGER,
+    question_text TEXT,
+    option_a TEXT,
+    option_b TEXT,
+    option_c TEXT,
+    option_d TEXT,
+    correct_answer TEXT,
+    correct_number REAL,
+    answer_min REAL,
+    answer_max REAL,
+    answer_step REAL,
+    herd_mode TEXT DEFAULT 'most',
+    simon_sequence TEXT,
+    autocomplete_answers TEXT,
+    scramble_letters TEXT,
+    pitch_points INTEGER,
+    timeline_items TEXT,
+    timeline_top_label TEXT,
+    timeline_bottom_label TEXT,
+    time_limit INTEGER,
+    FOREIGN KEY (game_id) REFERENCES games(id)
+  )
+`);
+
 function ensureColumn(table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all();
   if (!columns.some((existing) => existing.name === column)) {
