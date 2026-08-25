@@ -86,6 +86,9 @@ app.prepare().then(() => {
 
   // Global Master Party Room State
   const MASTER_ROOM = "PARTY";
+  // Only the host and display render the live player roster. Keeping them in a
+  // separate room avoids broadcasting a growing list to every player's phone.
+  const CONTROL_ROOM = "PARTY_CONTROLS";
   const partyState = {
     hostId: null,
     signupsOpen: true,
@@ -121,6 +124,7 @@ app.prepare().then(() => {
 // Display screen joins the master party room to watch the action
     socket.on('join-display-screen', () => {
       socket.join(MASTER_ROOM);
+      socket.join(CONTROL_ROOM);
       // Immediately send current state to the display screen in case a game is already running or in lobby
       socket.emit('master-update', { 
         players: partyState.players, 
@@ -159,6 +163,7 @@ app.prepare().then(() => {
       }
       partyState.hostId = socket.id;
       socket.join(MASTER_ROOM);
+      socket.join(CONTROL_ROOM);
       socket.emit('master-update', { 
         players: partyState.players, 
         status: partyState.status,
@@ -208,8 +213,9 @@ app.prepare().then(() => {
         });
       }
 
-      // Broadcast updated player list to host and all players
-      io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
+      // Player phones do not render the full roster, so only update the host
+      // and display screens. This keeps signup traffic manageable at scale.
+      io.to(CONTROL_ROOM).emit('update-players', { players: partyState.players });
       syncPlayerToCurrentState(socket, partyState);
       callback({ success: true });
       console.log(`${emoji} ${playerName} joined the master party!`);
@@ -224,7 +230,7 @@ app.prepare().then(() => {
         playerIds.forEach((playerId) => io.sockets.sockets.get(playerId)?.leave(MASTER_ROOM));
         partyState.players = [];
         partyState.removedPlayerKeys.clear();
-        io.to(MASTER_ROOM).emit('update-players', { players: [] });
+        io.to(CONTROL_ROOM).emit('update-players', { players: [] });
       } else {
         io.emit('room-opened');
       }
@@ -246,7 +252,7 @@ app.prepare().then(() => {
       }
 
       player.name = name;
-      io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
+      io.to(CONTROL_ROOM).emit('update-players', { players: partyState.players });
       callback?.({ success: true });
     });
 
@@ -267,7 +273,7 @@ app.prepare().then(() => {
       delete partyState.scrambleWordsThisRound[playerId];
       io.to(playerId).emit('player-removed');
       io.sockets.sockets.get(playerId)?.leave(MASTER_ROOM);
-      io.to(MASTER_ROOM).emit('update-players', { players: partyState.players });
+      io.to(CONTROL_ROOM).emit('update-players', { players: partyState.players });
 
       const question = partyState.questions[partyState.currentQuestionIndex];
       const totalAnswers = question?.game_type === 'word-scramble'
@@ -292,7 +298,7 @@ app.prepare().then(() => {
       partyState.pitchScores = { A: 0, B: 0 };
       partyState.status = 'lobby';
 
-      io.to(MASTER_ROOM).emit('game-loaded', { 
+      io.to(CONTROL_ROOM).emit('game-loaded', {
         totalQuestions: partyState.questions.length,
         players: partyState.players 
       });
