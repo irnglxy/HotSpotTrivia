@@ -28,6 +28,8 @@ let connected = 0;
 let joined = 0;
 let joinFailures = 0;
 let connectionFailures = 0;
+let disconnections = 0;
+const disconnectReasons = new Map();
 let answersSubmitted = 0;
 let wordSubmissions = 0;
 let rejectedWordSubmissions = 0;
@@ -72,15 +74,19 @@ function wordsForLetters(letters) {
 
 function printStatus() {
   const elapsed = Math.round((Date.now() - startedAt) / 1000);
-  console.log(`[${elapsed}s] connected ${connected}/${playerCount} | joined ${joined}/${playerCount} | join failures ${joinFailures} | connection failures ${connectionFailures} | answers ${answersSubmitted} | word submissions ${wordSubmissions} accepted, ${rejectedWordSubmissions} rejected`);
+  const liveConnections = bots.filter((bot) => bot.connected).length;
+  console.log(`[${elapsed}s] live ${liveConnections}/${playerCount} | connected ${connected}/${playerCount} | joined ${joined}/${playerCount} | join failures ${joinFailures} | connection failures ${connectionFailures} | disconnects ${disconnections} | answers ${answersSubmitted} | word submissions ${wordSubmissions} accepted, ${rejectedWordSubmissions} rejected`);
 }
 
 function printQuestionDelivery() {
   for (const [questionNumber, receipts] of questionReceipts) {
-    const firstReceipt = Math.min(...receipts);
-    const lastReceipt = Math.max(...receipts);
-    console.log(`Question ${questionNumber}: received by ${receipts.length}/${joined} bots; delivery spread ${lastReceipt - firstReceipt}ms.`);
+    const joinedReceipts = [...receipts.entries()].filter(([socketId]) => joinedAt.has(socketId));
+    const times = joinedReceipts.map(([, receivedAt]) => receivedAt);
+    const firstReceipt = Math.min(...times);
+    const lastReceipt = Math.max(...times);
+    console.log(`Question ${questionNumber}: received by ${joinedReceipts.length}/${joined} joined bots (${receipts.size} total); delivery spread ${lastReceipt - firstReceipt}ms.`);
   }
+  if (disconnectReasons.size) console.log(`Disconnect reasons: ${[...disconnectReasons.entries()].map(([reason, count]) => `${reason} (${count})`).join(', ')}.`);
 }
 
 function shutdown(reason) {
@@ -134,11 +140,11 @@ function createBot(index) {
   });
 
   socket.on('next-question', (question) => {
-    if (!joinedAt.has(socket.id)) return;
     const key = question.questionNumber || 0;
-    const receipts = questionReceipts.get(key) || [];
-    receipts.push(Date.now());
+    const receipts = questionReceipts.get(key) || new Map();
+    receipts.set(socket.id, Date.now());
     questionReceipts.set(key, receipts);
+    if (!joinedAt.has(socket.id)) return;
     stopSubmittingWords();
     submittedWords = new Set();
 
@@ -180,7 +186,13 @@ function createBot(index) {
   });
 
   socket.on('question-time-up', stopSubmittingWords);
-  socket.on('disconnect', stopSubmittingWords);
+  socket.on('disconnect', (reason) => {
+    stopSubmittingWords();
+    if (shuttingDown) return;
+    disconnections += 1;
+    disconnectReasons.set(reason, (disconnectReasons.get(reason) || 0) + 1);
+    console.error(`Bot ${index + 1} disconnected: ${reason}`);
+  });
 }
 
 console.log(`Starting ${playerCount} simulated players against ${targetUrl}`);
