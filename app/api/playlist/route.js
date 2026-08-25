@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getDb } from '@/lib/db';
 import hostAuth from '@/lib/host-auth.cjs';
+
+export const dynamic = 'force-dynamic';
 
 const authorized = (request) => hostAuth.isAuthorizedCookie(request.headers.get('cookie'));
 
 export async function GET(request) {
   if (!authorized(request)) return NextResponse.json({ error: 'Host sign-in required.' }, { status: 401 });
+  const db = getDb();
   const games = db.prepare('SELECT * FROM games ORDER BY display_order ASC, id ASC').all();
   const questions = db.prepare('SELECT * FROM questions ORDER BY id ASC').all();
   return NextResponse.json({ format: 'hotspot-playlist', version: 1, exportedAt: new Date().toISOString(), games: games.map((game) => ({ ...game, questions: questions.filter((question) => question.game_id === game.id).map((question) => { const copy = { ...question }; delete copy.id; delete copy.game_id; return copy; }) })) });
@@ -14,6 +17,7 @@ export async function GET(request) {
 export async function POST(request) {
   if (!authorized(request)) return NextResponse.json({ error: 'Host sign-in required.' }, { status: 401 });
   try {
+    const db = getDb();
     const playlist = await request.json();
     if (playlist?.format !== 'hotspot-playlist' || !Array.isArray(playlist.games)) throw new Error('That is not a Hot Spot playlist file.');
     const nextOrder = db.prepare('SELECT COALESCE(MAX(display_order), 0) AS current_order FROM games').get().current_order;

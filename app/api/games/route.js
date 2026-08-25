@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { getDb } from '@/lib/db';
 import hostAuth from '@/lib/host-auth.cjs';
+
+export const dynamic = 'force-dynamic';
 
 const requireHost = (request) => hostAuth.isAuthorizedCookie(request.headers.get('cookie')) ? null : NextResponse.json({ error: 'Host sign-in required.' }, { status: 401 });
 
@@ -8,6 +10,7 @@ const requireHost = (request) => hostAuth.isAuthorizedCookie(request.headers.get
 export async function POST(request) {
   const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
+    const db = getDb();
     const body = await request.json();
     const { title, gameType = 'trivia', questions } = body;
 
@@ -66,6 +69,7 @@ export async function POST(request) {
 export async function GET(request) {
   const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
+    const db = getDb();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
@@ -122,6 +126,7 @@ export async function GET(request) {
 export async function DELETE(request) {
   const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
+    const db = getDb();
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
@@ -144,6 +149,7 @@ export async function DELETE(request) {
 export async function PUT(request) {
   const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
+    const db = getDb();
     const body = await request.json();
     const { id, title, gameType = 'trivia', questions } = body;
 
@@ -202,6 +208,7 @@ export async function PUT(request) {
 export async function PATCH(request) {
   const unauthorized = requireHost(request); if (unauthorized) return unauthorized;
   try {
+    const db = getDb();
     const { gameIds } = await request.json();
     if (!Array.isArray(gameIds)) return NextResponse.json({ error: 'Game order is required.' }, { status: 400 });
     const updateOrder = db.prepare('UPDATE games SET display_order = ? WHERE id = ?');
