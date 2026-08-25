@@ -397,7 +397,7 @@ export default function PlayPage() {
                 type="text" 
                 maxLength={15}
                 className="w-full p-3.5 bg-zinc-950 border border-zinc-700 rounded-xl text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500 text-lg font-medium"
-                placeholder="e.g. TriviaKing"
+                placeholder="e.g. Gamezy"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
               />
@@ -450,7 +450,7 @@ export default function PlayPage() {
                 type="submit" 
                 className={`${joined ? 'w-2/3' : 'w-full'} bg-purple-600 hover:bg-purple-500 text-white font-bold p-3.5 rounded-xl shadow-lg transition text-lg`}
               >
-                {joined ? 'Save Changes' : 'Enter Party 🎉'}
+                {joined ? 'Save Changes' : 'Enter Party'}
               </button>
             </div>
           </form>
