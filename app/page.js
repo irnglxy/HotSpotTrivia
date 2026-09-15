@@ -303,7 +303,7 @@ export default function MasterHostDashboard() {
         setEditingGameId(data.game.id);
         setGameTitle(data.game.title);
         setGameType(data.game.gameType || 'trivia');
-        setQuestions(data.game.questions.map((question) => data.game.gameType === 'liar-liar' ? { ...question, questionText: 'Is it true or false?', options: ['True', 'False'] } : question));
+        setQuestions(data.game.questions.map((question) => data.game.gameType === 'liar-liar' ? { ...question, options: ['True', 'False'] } : question));
         setView('builder');
       } else {
         alert("Could not load game for editing.");

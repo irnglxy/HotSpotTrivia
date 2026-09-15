@@ -526,7 +526,7 @@ function buildQuestionPayload(partyState, q) {
     gameType,
     questionNumber: partyState.currentQuestionIndex + 1,
     totalQuestions: partyState.questions.length,
-    questionText: isLiarLiar ? 'Is it true or false?' : q.question_text,
+    questionText: q.question_text,
     options: isLiarLiar ? ['True', 'False'] : [q.option_a, q.option_b, q.option_c, q.option_d],
     answerMin: q.answer_min,
     answerMax: q.answer_max,
@@ -793,7 +793,7 @@ function revealAnswers(io, partyState) {
   const isLiarLiar = q.game_type === 'liar-liar';
   const payload = {
     gameType: q.game_type || 'trivia',
-    questionText: isLiarLiar ? 'Is it true or false?' : q.question_text,
+    questionText: q.question_text,
     options: isLiarLiar ? ['True', 'False'] : [q.option_a, q.option_b, q.option_c, q.option_d],
     counts,
     totalAnswers: Object.keys(partyState.answersThisRound).length,
