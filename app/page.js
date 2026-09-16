@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { socket } from '@/lib/socket';
 
+const normalizeOpenTriviaAnswer = (answer) => String(answer || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
 const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
-  ? { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', correctNumber: '', answerMin: 0, answerMax: 100, answerStep: 1, timeLimit: 30 }
+  ? { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', correctNumber: '', answerMin: 0, answerMax: 100, answerStep: 1, scoringMargin: '', timeLimit: 30 }
   : gameType === 'liar-liar'
     ? { questionText: 'Is it true or false?', options: ['True', 'False'], correctAnswer: 'A', timeLimit: 15 }
     : gameType === 'simon-says'
@@ -19,6 +21,8 @@ const newQuestion = (gameType) => gameType === 'shot-in-the-dark'
             ? { questionText: '', options: ['', ''], pitchPoints: 100, timeLimit: 30 }
           : gameType === 'timeline'
             ? { questionText: '', options: [], timelineItems: ['', '', '', '', '', ''], timelineTopLabel: 'First', timelineBottomLabel: 'Last', timeLimit: 30 }
+          : gameType === 'open-trivia'
+            ? { questionText: '', options: [], correctAnswer: '', timeLimit: 15 }
           : { questionText: '', options: ['', '', '', ''], correctAnswer: 'A', herdMode: 'most', timeLimit: 15 };
 
 const gameTypeLabel = (gameType) => ({
@@ -30,7 +34,8 @@ const gameTypeLabel = (gameType) => ({
   'autocomplete-trivia': 'Autocomplete Trivia',
   'word-scramble': 'Word Scramble'
   ,'pitch-meeting': 'Pitch Meeting',
-  'timeline': 'Timeline'
+  'timeline': 'Timeline',
+  'open-trivia': 'Open Trivia'
 }[gameType] || 'Trivia');
 
 const gameTypeClass = (gameType) => ({
@@ -42,7 +47,8 @@ const gameTypeClass = (gameType) => ({
   'autocomplete-trivia': 'bg-teal-950 text-teal-300',
   'word-scramble': 'bg-[#B8C22E]/20 text-[#B8C22E]'
   ,'pitch-meeting': 'bg-sky-950 text-sky-300',
-  'timeline': 'bg-violet-950 text-violet-300'
+  'timeline': 'bg-violet-950 text-violet-300',
+  'open-trivia': 'bg-orange-950 text-orange-300'
 }[gameType] || 'bg-blue-950 text-blue-300');
 
 export default function MasterHostDashboard() {
@@ -73,6 +79,13 @@ export default function MasterHostDashboard() {
   const [gameType, setGameType] = useState('trivia');
   const [questions, setQuestions] = useState([newQuestion('trivia')]);
   const [correctNumber, setCorrectNumber] = useState('');
+  const [pitchOptionA, setPitchOptionA] = useState('');
+  const [pitchOptionB, setPitchOptionB] = useState('');
+  const [pitchQuestionText, setPitchQuestionText] = useState('');
+  const [openTriviaCorrectAnswer, setOpenTriviaCorrectAnswer] = useState('');
+  const [openTriviaAnswerGroups, setOpenTriviaAnswerGroups] = useState([]);
+  const [openTriviaAcceptedAnswers, setOpenTriviaAcceptedAnswers] = useState([]);
+  const [openTriviaQuestionText, setOpenTriviaQuestionText] = useState('');
   const [pickerCount, setPickerCount] = useState(1);
   const [pickedPlayers, setPickedPlayers] = useState([]);
   const [authStatus, setAuthStatus] = useState('checking');
@@ -143,6 +156,20 @@ export default function MasterHostDashboard() {
       setFinalScores([]);
     });
     socket.on('request-correct-number', (data) => { setCorrectNumber(data.correctNumber); setView('answer-entry'); });
+    socket.on('request-pitch-options', (data) => {
+      setPitchQuestionText(data.questionText || '');
+      setPitchOptionA(data.options?.[0] || '');
+      setPitchOptionB(data.options?.[1] || '');
+      setView('pitch-options');
+    });
+    socket.on('request-open-trivia-scoring', (data) => {
+      setOpenTriviaQuestionText(data.questionText || '');
+      setOpenTriviaCorrectAnswer(data.correctAnswer || '');
+      setOpenTriviaAnswerGroups(data.answerGroups || []);
+      const defaultKey = normalizeOpenTriviaAnswer(data.correctAnswer || '');
+      setOpenTriviaAcceptedAnswers(defaultKey && (data.answerGroups || []).some((group) => group.key === defaultKey) ? [defaultKey] : []);
+      setView('open-trivia-entry');
+    });
     socket.on('player-picker-setup', (data) => { setPickerCount(Math.min(1, data.totalPlayers)); setView('picker-setup'); });
     socket.on('player-picker-start', () => setView('picker-selecting'));
     socket.on('player-picker-result', (data) => { setPickedPlayers(data.players); setView('picker-result'); });
@@ -161,6 +188,8 @@ export default function MasterHostDashboard() {
       socket.off('game-over');
       socket.off('game-ended');
       socket.off('request-correct-number');
+      socket.off('request-pitch-options');
+      socket.off('request-open-trivia-scoring');
       socket.off('player-picker-setup');
       socket.off('player-picker-start');
       socket.off('player-picker-result');
@@ -224,6 +253,18 @@ export default function MasterHostDashboard() {
     setAnswerBreakdown(response.payload);
     setView('answer-reveal');
   });
+  const startPitchQuestion = () => socket.emit('start-pitch-question', { optionA: pitchOptionA, optionB: pitchOptionB }, (response) => {
+    if (!response?.success) alert(response?.error || 'Could not start the pitch vote.');
+  });
+  const scoreOpenTrivia = () => socket.emit('score-open-trivia', { correctAnswer: openTriviaCorrectAnswer, acceptedAnswers: openTriviaAcceptedAnswers }, (response) => {
+    if (!response?.success) {
+      alert(response?.error || 'Could not score answers.');
+      return;
+    }
+    setAnswerBreakdown(response.payload);
+    setView('answer-reveal');
+  });
+  const toggleOpenTriviaAnswer = (key) => setOpenTriviaAcceptedAnswers((answers) => answers.includes(key) ? answers.filter((answer) => answer !== key) : [...answers, key]);
 
   const renamePlayer = (player) => {
     const playerName = prompt(`Rename ${player.name}`, player.name);
@@ -303,7 +344,7 @@ export default function MasterHostDashboard() {
         setEditingGameId(data.game.id);
         setGameTitle(data.game.title);
         setGameType(data.game.gameType || 'trivia');
-        setQuestions(data.game.questions.map((question) => data.game.gameType === 'liar-liar' ? { ...question, options: ['True', 'False'] } : question));
+        setQuestions(data.game.questions.map((question) => data.game.gameType === 'liar-liar' ? { ...question, options: ['True', 'False'] } : data.game.gameType === 'pitch-meeting' ? { ...question, options: question.options.slice(0, 2) } : question));
         setView('builder');
       } else {
         alert("Could not load game for editing.");
@@ -353,6 +394,10 @@ export default function MasterHostDashboard() {
     }
     if (gameType === 'autocomplete-trivia' && questions.some((question) => !question.autocompleteAnswers?.length || !question.correctAnswer)) {
       alert('Add possible answers and select the correct one for every question.');
+      return;
+    }
+    if (gameType === 'open-trivia' && questions.some((question) => !question.correctAnswer?.trim())) {
+      alert('Add a default correct answer for every Open Trivia question.');
       return;
     }
     if (gameType === 'word-scramble' && questions.some((question) => question.scrambleLetters.replace(/[^a-z]/gi, '').length < 3)) {
@@ -618,7 +663,7 @@ export default function MasterHostDashboard() {
               {currentQuestion.questionText}
             </h1>}
 
-            {currentQuestion.gameType === 'word-scramble' ? <div className="mb-10 bg-[#B8C22E]/10 border border-[#B8C22E] rounded-2xl p-8 text-center"><p className="text-[#B8C22E] text-xl font-bold mb-4">Make as many words as you can</p><div className="flex flex-wrap justify-center gap-3">{[...currentQuestion.scrambleLetters].map((letter, index) => <span key={`${letter}-${index}`} className="w-14 h-16 bg-[#B8C22E] text-zinc-950 rounded-xl flex items-center justify-center text-3xl font-black shadow-lg">{letter}</span>)}</div></div> : currentQuestion.gameType === 'autocomplete-trivia' ? <div className="mb-10 bg-teal-950/50 border border-teal-700 rounded-2xl p-6 text-teal-200 font-bold">Players are typing and selecting their answer.</div> : currentQuestion.gameType === 'simon-says' ? <div className="mb-10 bg-cyan-950/50 border border-cyan-700 rounded-2xl p-8 text-cyan-200"><p className="text-3xl font-black">Simon Says</p><p className="mt-2">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
+            {currentQuestion.gameType === 'word-scramble' ? <div className="mb-10 bg-[#B8C22E]/10 border border-[#B8C22E] rounded-2xl p-8 text-center"><p className="text-[#B8C22E] text-xl font-bold mb-4">Make as many words as you can</p><div className="flex flex-wrap justify-center gap-3">{[...currentQuestion.scrambleLetters].map((letter, index) => <span key={`${letter}-${index}`} className="w-14 h-16 bg-[#B8C22E] text-zinc-950 rounded-xl flex items-center justify-center text-3xl font-black shadow-lg">{letter}</span>)}</div></div> : currentQuestion.gameType === 'autocomplete-trivia' ? <div className="mb-10 bg-teal-950/50 border border-teal-700 rounded-2xl p-6 text-teal-200 font-bold">Players are typing and selecting their answer.</div> : currentQuestion.gameType === 'open-trivia' ? <div className="mb-10 bg-orange-950/50 border border-orange-700 rounded-2xl p-6 text-orange-200 font-bold">Players are typing their answers.</div> : currentQuestion.gameType === 'simon-says' ? <div className="mb-10 bg-cyan-950/50 border border-cyan-700 rounded-2xl p-8 text-cyan-200"><p className="text-3xl font-black">Simon Says</p><p className="mt-2">Players are entering {currentQuestion.simonSequenceLength} colors.</p></div> : currentQuestion.gameType === 'shot-in-the-dark' ? (
               <div className="mb-10 bg-purple-950/50 border border-purple-700 rounded-2xl p-6 text-purple-200 font-bold">
                 Shot In The Dark • Players are choosing a number between {currentQuestion.answerMin} and {currentQuestion.answerMax}
               </div>
@@ -654,11 +699,11 @@ export default function MasterHostDashboard() {
           <div className="max-w-3xl mx-auto text-center space-y-6">
             <p className="text-purple-300 font-bold uppercase tracking-widest">Shot In The Dark</p>
             <h2 className="text-3xl font-black text-white">Correct answer: <span className="text-emerald-400">{answerBreakdown.correctNumber}</span></h2>
-            <p className="text-zinc-400">{answerBreakdown.totalAnswers} guesses scored. Players within 20% earned points; exact guesses earned 1,200.</p>
+            <p className="text-zinc-400">{answerBreakdown.totalAnswers} guesses scored. Scoring margin: <span className="font-bold text-purple-300">±{Number(answerBreakdown.scoringMargin).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></p>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-left">
               <h3 className="font-bold text-white mb-3">All guesses</h3>
               <div className="max-h-64 overflow-y-auto space-y-2 pr-2">
-                {[...answerBreakdown.guesses].sort((a, b) => a.answer - b.answer).map((guess) => <div key={guess.playerId} className="flex justify-between items-center bg-zinc-950 rounded-xl p-3"><span>{guess.emoji} <span className="font-bold text-white">{guess.name}</span></span><span className="font-mono text-purple-300">{guess.answer}</span><span className="font-mono text-emerald-400">+{guess.pointsEarned}</span></div>)}
+                {[...answerBreakdown.guesses].sort((a, b) => b.pointsEarned - a.pointsEarned || a.difference - b.difference || a.name.localeCompare(b.name)).map((guess) => <div key={guess.playerId} className="flex justify-between items-center bg-zinc-950 rounded-xl p-3"><span>{guess.emoji} <span className="font-bold text-white">{guess.name}</span></span><span className="font-mono text-purple-300">{guess.answer}</span><span className="font-mono text-emerald-400">+{guess.pointsEarned}</span></div>)}
               </div>
             </div>
             {answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}
@@ -673,6 +718,10 @@ export default function MasterHostDashboard() {
             <p className="text-zinc-400">{answerBreakdown.totalAnswers} / {answerBreakdown.totalPlayers} players completed a sequence</p>
             {answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}
           </div>
+        )}
+
+        {view === 'answer-reveal' && answerBreakdown?.gameType === 'open-trivia' && (
+          <div className="max-w-3xl mx-auto text-center space-y-6"><p className="text-orange-300 font-bold uppercase tracking-widest">Open Trivia</p><h2 className="text-3xl font-black text-white">{answerBreakdown.questionText}</h2><p className="text-zinc-400">Correct answer: <span className="text-emerald-400 font-bold">{answerBreakdown.correctAnswer}</span></p><div className="max-h-[55vh] overflow-y-auto space-y-2 text-left pr-2">{answerBreakdown.answerCounts.map(({ key, answer, count, isCorrect }) => <div key={key} className={`flex justify-between border rounded-xl p-4 ${isCorrect ? 'bg-emerald-950/40 border-emerald-500' : 'bg-zinc-900 border-zinc-800'}`}><span className="font-bold text-white">{answer}{isCorrect && <span className="ml-3 text-emerald-400 text-sm">Accepted</span>}</span><span className="font-mono text-zinc-300">{count}</span></div>)}</div><p className="text-zinc-500 text-sm">{answerBreakdown.totalAnswers} / {answerBreakdown.totalPlayers} answered</p>{answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}</div>
         )}
 
         {view === 'answer-reveal' && answerBreakdown?.gameType === 'autocomplete-trivia' && (
@@ -691,7 +740,7 @@ export default function MasterHostDashboard() {
           <div className="max-w-3xl mx-auto text-center space-y-6"><p className="text-violet-300 font-bold uppercase tracking-widest">Timeline</p><h2 className="text-3xl font-black text-white">{answerBreakdown.questionText}</h2><div className="rounded-3xl border border-violet-700 bg-violet-950/30 p-5 text-left"><p className="text-center text-xs uppercase tracking-widest text-violet-200 font-bold mb-3">{answerBreakdown.topLabel}</p><div className="space-y-2">{answerBreakdown.correctOrder.map((item, index) => <div key={item} className="flex gap-3 rounded-xl bg-zinc-950 p-3"><span className="text-violet-300 font-black">{index + 1}</span><span className="font-bold text-white">{item}</span></div>)}</div><p className="text-center text-xs uppercase tracking-widest text-violet-200 font-bold mt-3">{answerBreakdown.bottomLabel}</p></div><div className="max-h-64 overflow-y-auto space-y-2 text-left pr-1">{[...answerBreakdown.submissions].sort((a, b) => b.pointsEarned - a.pointsEarned).map((submission) => <div key={submission.playerId} className="flex justify-between gap-4 rounded-xl bg-zinc-900 border border-zinc-800 p-3"><span className="font-bold text-white">{submission.emoji} {submission.name}</span><span className="text-violet-200 font-mono">{submission.correctItems}/6 correct • +{submission.pointsEarned}</span></div>)}</div><p className="text-zinc-400 font-mono">{answerBreakdown.totalAnswers} / {answerBreakdown.totalPlayers} timelines locked in</p>{answerBreakdown.isLastQuestion ? <button onClick={revealWinner} className="bg-amber-500 text-zinc-950 font-black px-8 py-4 rounded-2xl">Reveal Winner 🏆</button> : <button onClick={showScores} className="bg-purple-600 text-white font-bold px-8 py-4 rounded-2xl">Show Scores</button>}</div>
         )}
 
-        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && answerBreakdown.gameType !== 'word-scramble' && answerBreakdown.gameType !== 'pitch-meeting' && answerBreakdown.gameType !== 'timeline' && (
+        {view === 'answer-reveal' && answerBreakdown && answerBreakdown.gameType !== 'shot-in-the-dark' && answerBreakdown.gameType !== 'simon-says' && answerBreakdown.gameType !== 'autocomplete-trivia' && answerBreakdown.gameType !== 'open-trivia' && answerBreakdown.gameType !== 'word-scramble' && answerBreakdown.gameType !== 'pitch-meeting' && answerBreakdown.gameType !== 'timeline' && (
           <div>
             {answerBreakdown.isLastQuestion && (
               <div className="mb-6 bg-amber-950/80 border border-amber-500 text-amber-200 px-5 py-3 rounded-2xl font-bold text-center">
@@ -776,6 +825,7 @@ export default function MasterHostDashboard() {
             {roundResults.gameType === 'trivia' && <p className="text-zinc-400 mb-6">Correct Answer was: <span className="text-emerald-400 font-bold text-2xl">[{roundResults.correctAnswer}]</span></p>}
             {roundResults.gameType === 'liar-liar' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.options?.[roundResults.correctAnswer === 'B' ? 1 : 0]}</span></p>}
             {roundResults.gameType === 'autocomplete-trivia' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.correctAnswer}</span></p>}
+            {roundResults.gameType === 'open-trivia' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.correctAnswer}</span></p>}
 
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl mb-8">
               <h2 className="text-xl font-bold text-white mb-4">Game Leaderboard</h2>
@@ -872,6 +922,38 @@ export default function MasterHostDashboard() {
           </div>
         )}
 
+        {view === 'pitch-options' && (
+          <div className="max-w-xl mx-auto bg-zinc-900 border border-sky-700 rounded-3xl p-8 shadow-2xl">
+            <p className="text-sky-300 font-bold uppercase tracking-widest text-center mb-3">Pitch Meeting</p>
+            <h2 className="text-3xl font-black text-white text-center mb-3">Name the two pitches</h2>
+            {pitchQuestionText && <p className="text-zinc-400 text-center mb-7">{pitchQuestionText}</p>}
+            <div className="space-y-5">
+              <label className="block text-red-300 font-bold">First pitch<input value={pitchOptionA} onChange={(event) => setPitchOptionA(event.target.value)} className="mt-2 w-full p-4 bg-zinc-950 border border-red-800 rounded-xl text-white text-lg" /></label>
+              <label className="block text-blue-300 font-bold">Second pitch<input value={pitchOptionB} onChange={(event) => setPitchOptionB(event.target.value)} className="mt-2 w-full p-4 bg-zinc-950 border border-blue-800 rounded-xl text-white text-lg" /></label>
+            </div>
+            <p className="text-zinc-500 text-sm text-center mt-5">The saved names are already filled in — change them only when the on-stage pitches need new names.</p>
+            <button onClick={startPitchQuestion} className="w-full mt-7 bg-sky-500 hover:bg-sky-400 text-zinc-950 font-black text-lg px-8 py-4 rounded-2xl">Start Audience Vote</button>
+          </div>
+        )}
+
+        {view === 'open-trivia-entry' && (
+          <div className="max-w-2xl mx-auto bg-zinc-900 border border-orange-700 rounded-3xl p-8 shadow-2xl">
+            <p className="text-orange-300 font-bold uppercase tracking-widest text-center mb-3">Open Trivia</p>
+            <h2 className="text-3xl font-black text-white text-center mb-3">Review and score answers</h2>
+            {openTriviaQuestionText && <p className="text-zinc-400 text-center mb-7">{openTriviaQuestionText}</p>}
+            <label className="block text-orange-200 font-bold mb-6">Correct answer<input value={openTriviaCorrectAnswer} onChange={(event) => setOpenTriviaCorrectAnswer(event.target.value)} className="mt-2 w-full p-4 bg-zinc-950 border border-orange-800 rounded-xl text-white text-lg" autoFocus /></label>
+            <p className="text-zinc-400 text-sm mb-3">Select any submitted answer groups you want to accept as correct.</p>
+            <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
+              {openTriviaAnswerGroups.map((group) => {
+                const accepted = openTriviaAcceptedAnswers.includes(group.key);
+                return <button type="button" key={group.key} onClick={() => toggleOpenTriviaAnswer(group.key)} className={`w-full flex items-center justify-between text-left rounded-xl border p-4 transition ${accepted ? 'bg-emerald-950/60 border-emerald-500 text-white' : 'bg-zinc-950 border-zinc-800 text-zinc-300 hover:border-zinc-600'}`}><span className="font-bold">{group.answer}</span><span className={accepted ? 'text-emerald-300 font-black' : 'text-zinc-500 font-mono'}>{accepted ? 'Accepted ✓' : `${group.count} ${group.count === 1 ? 'answer' : 'answers'}`}</span></button>;
+              })}
+              {!openTriviaAnswerGroups.length && <p className="text-center text-zinc-500 py-5">No answers were submitted.</p>}
+            </div>
+            <button onClick={scoreOpenTrivia} className="w-full mt-7 bg-orange-500 hover:bg-orange-400 text-zinc-950 font-black text-lg px-8 py-4 rounded-2xl">Score Answers &amp; Reveal Results</button>
+          </div>
+        )}
+
         {/* VIEW 6: GAME BUILDER (Create / Edit Mode) */}
         {view === 'builder' && (
           <div>
@@ -890,7 +972,7 @@ export default function MasterHostDashboard() {
               />
               <label className="block text-zinc-300 font-semibold mt-4 mb-2">Game Type</label>
               <select value={gameType} onChange={(e) => { const type = e.target.value; setGameType(type); setQuestions([newQuestion(type)]); }} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white">
-                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option><option value="autocomplete-trivia">Autocomplete Trivia</option><option value="word-scramble">Word Scramble</option><option value="pitch-meeting">Pitch Meeting</option><option value="timeline">Timeline</option>
+                <option value="trivia">Trivia</option><option value="shot-in-the-dark">Shot In The Dark</option><option value="follow-the-herd">Follow The Herd</option><option value="liar-liar">Liar Liar</option><option value="simon-says">Simon Says</option><option value="player-picker">Player Picker</option><option value="autocomplete-trivia">Autocomplete Trivia</option><option value="open-trivia">Open Trivia</option><option value="word-scramble">Word Scramble</option><option value="pitch-meeting">Pitch Meeting</option><option value="timeline">Timeline</option>
               </select>
             </div>
 
@@ -918,9 +1000,11 @@ export default function MasterHostDashboard() {
 
                 {gameType === 'autocomplete-trivia' && <div className="mb-4 rounded-xl border border-teal-800 bg-teal-950/30 p-4"><label className="block font-bold text-teal-200 mb-2">Possible answers</label><textarea value={(q.autocompleteAnswers || []).join('\n')} onChange={(e) => handleAutocompleteAnswers(qIndex, e.target.value)} placeholder={'One answer per line\ne.g. The Beatles'} rows={5} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-teal-500 resize-y" /><p className="text-zinc-400 text-sm mt-2">Players type to filter suggestions, then tap one answer to submit.</p></div>}
 
+                {gameType === 'open-trivia' && <div className="mb-4 rounded-xl border border-orange-800 bg-orange-950/30 p-4"><label className="block font-bold text-orange-200 mb-2">Default correct answer</label><input type="text" value={q.correctAnswer || ''} onChange={(e) => handleQuestionChange(qIndex, 'correctAnswer', e.target.value)} placeholder="e.g. The Beatles" className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-orange-500" /><p className="text-zinc-400 text-sm mt-2">Players can type any answer. You can change this answer and accept spelling variants before scoring.</p></div>}
+
                 {gameType === 'word-scramble' && <div className="mb-4 rounded-xl border border-[#B8C22E] bg-[#B8C22E]/10 p-4"><label className="block font-bold text-[#B8C22E] mb-2">Letters for this round</label><input type="text" value={q.scrambleLetters || ''} onChange={(e) => handleQuestionChange(qIndex, 'scrambleLetters', e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))} placeholder="e.g. TRIANGLE" className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-[#B8C22E] uppercase tracking-[0.35em] font-black" /><p className="text-zinc-400 text-sm mt-2">Players can use each letter only as many times as it appears here. Standard dictionary words, including plurals and inflections, are allowed.</p></div>}
 
-                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'pitch-meeting' ? <div className="space-y-3 mb-4"><p className="text-sky-300 font-bold">Name the two pitches and set the points each player allocates.</p>{q.options.map((option, index) => <input key={index} type="text" placeholder={`Option ${index === 0 ? 'A' : 'B'}`} value={option} onChange={(e) => handleOptionChange(qIndex, index, e.target.value)} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" />)}<label className="block text-sm text-zinc-300">Points to allocate<input type="number" min="2" step="2" value={q.pitchPoints} onChange={(e) => handleQuestionChange(qIndex, 'pitchPoints', Number(e.target.value))} className="mt-1 w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label></div> : gameType === 'timeline' ? <div className="mb-4 rounded-xl border border-violet-800 bg-violet-950/30 p-4 space-y-4"><p className="font-bold text-violet-200">Enter the six items in their correct order, from top to bottom.</p><div className="grid sm:grid-cols-2 gap-3"><label className="text-sm text-violet-100">Top label<input type="text" value={q.timelineTopLabel || ''} onChange={(e) => handleQuestionChange(qIndex, 'timelineTopLabel', e.target.value)} placeholder="e.g. Most recent" className="mt-1 w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label><label className="text-sm text-violet-100">Bottom label<input type="text" value={q.timelineBottomLabel || ''} onChange={(e) => handleQuestionChange(qIndex, 'timelineBottomLabel', e.target.value)} placeholder="e.g. Oldest" className="mt-1 w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label></div><div className="space-y-2">{(q.timelineItems || []).map((item, itemIndex) => <label key={itemIndex} className="flex items-center gap-3"><span className="w-8 text-center font-black text-violet-300">{itemIndex + 1}</span><input type="text" value={item} onChange={(e) => { const items = [...q.timelineItems]; items[itemIndex] = e.target.value; handleQuestionChange(qIndex, 'timelineItems', items); }} placeholder={`Item ${itemIndex + 1}`} className="flex-1 p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label>)}</div><p className="text-sm text-zinc-400">Players receive these in a random order, then drag them between the labels.</p></div> : gameType === 'word-scramble' ? <div className="mb-4 rounded-xl border border-[#B8C22E] bg-[#B8C22E]/10 p-4 text-[#B8C22E]"><p className="font-bold">Word Scramble</p><p className="text-sm mt-1">Players make as many valid words as they can before time runs out. Default time is 90 seconds.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>True</strong> or <strong>False</strong>.</p></div> : gameType !== 'shot-in-the-dark' ? <div className="space-y-3 mb-4">
+                {gameType === 'player-picker' ? <div className="mb-4 rounded-xl border border-fuchsia-800 bg-fuchsia-950/30 p-4 text-fuchsia-200"><p className="font-bold">Player Picker</p><p className="text-sm mt-1">No questions or scores. The host chooses how many randomly selected players remain when the game begins.</p></div> : gameType === 'pitch-meeting' ? <div className="space-y-3 mb-4"><p className="text-sky-300 font-bold">Name the two pitches and set the points each player allocates.</p>{q.options.map((option, index) => <input key={index} type="text" placeholder={`Option ${index === 0 ? 'A' : 'B'}`} value={option} onChange={(e) => handleOptionChange(qIndex, index, e.target.value)} className="w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" />)}<label className="block text-sm text-zinc-300">Points to allocate<input type="number" min="2" step="2" value={q.pitchPoints} onChange={(e) => handleQuestionChange(qIndex, 'pitchPoints', Number(e.target.value))} className="mt-1 w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label></div> : gameType === 'timeline' ? <div className="mb-4 rounded-xl border border-violet-800 bg-violet-950/30 p-4 space-y-4"><p className="font-bold text-violet-200">Enter the six items in their correct order, from top to bottom.</p><div className="grid sm:grid-cols-2 gap-3"><label className="text-sm text-violet-100">Top label<input type="text" value={q.timelineTopLabel || ''} onChange={(e) => handleQuestionChange(qIndex, 'timelineTopLabel', e.target.value)} placeholder="e.g. Most recent" className="mt-1 w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label><label className="text-sm text-violet-100">Bottom label<input type="text" value={q.timelineBottomLabel || ''} onChange={(e) => handleQuestionChange(qIndex, 'timelineBottomLabel', e.target.value)} placeholder="e.g. Oldest" className="mt-1 w-full p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label></div><div className="space-y-2">{(q.timelineItems || []).map((item, itemIndex) => <label key={itemIndex} className="flex items-center gap-3"><span className="w-8 text-center font-black text-violet-300">{itemIndex + 1}</span><input type="text" value={item} onChange={(e) => { const items = [...q.timelineItems]; items[itemIndex] = e.target.value; handleQuestionChange(qIndex, 'timelineItems', items); }} placeholder={`Item ${itemIndex + 1}`} className="flex-1 p-3 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label>)}</div><p className="text-sm text-zinc-400">Players receive these in a random order, then drag them between the labels.</p></div> : gameType === 'word-scramble' ? <div className="mb-4 rounded-xl border border-[#B8C22E] bg-[#B8C22E]/10 p-4 text-[#B8C22E]"><p className="font-bold">Word Scramble</p><p className="text-sm mt-1">Players make as many valid words as they can before time runs out. Default time is 90 seconds.</p></div> : gameType === 'simon-says' ? <div className="mb-4 rounded-xl border border-cyan-800 bg-cyan-950/30 p-4"><p className="font-bold text-cyan-200 mb-3">Build the color sequence</p><div className="flex flex-wrap gap-2 min-h-12 mb-4">{(q.simonSequence || []).length === 0 ? <span className="text-zinc-500 text-sm">Choose colors below to build this round.</span> : q.simonSequence.map((color, index) => <span key={index} className={`w-10 h-10 rounded-lg ${color === 'red' ? 'bg-red-600' : color === 'green' ? 'bg-green-600' : color === 'blue' ? 'bg-blue-600' : 'bg-orange-500'}`} title={`${index + 1}: ${color}`} />)}</div><div className="grid grid-cols-2 gap-2 max-w-xs"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'red'])} className="h-14 rounded-xl bg-red-600 font-bold">Red</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'green'])} className="h-14 rounded-xl bg-green-600 font-bold">Green</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'blue'])} className="h-14 rounded-xl bg-blue-600 font-bold">Blue</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [...(q.simonSequence || []), 'orange'])} className="h-14 rounded-xl bg-orange-500 font-bold">Orange</button></div><div className="flex gap-3 mt-4"><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', (q.simonSequence || []).slice(0, -1))} className="text-sm text-zinc-300">Undo last</button><button type="button" onClick={() => handleQuestionChange(qIndex, 'simonSequence', [])} className="text-sm text-red-300">Clear sequence</button></div></div> : gameType === 'liar-liar' ? <div className="mb-4 rounded-xl border border-rose-800 bg-rose-950/30 p-4 text-rose-200"><p className="font-bold">Liar Liar</p><p className="text-sm mt-1">Players choose between fixed answers: <strong>True</strong> or <strong>False</strong>.</p></div> : gameType !== 'shot-in-the-dark' && gameType !== 'open-trivia' ? <div className="space-y-3 mb-4">
                   {gameType !== 'autocomplete-trivia' && q.options.map((opt, optIndex) => {
                     const optLetter = ['A', 'B', 'C', 'D'][optIndex];
                     const badgeColors = { A: 'bg-red-500/20 text-red-400 border-red-500/30', B: 'bg-blue-500/20 text-blue-400 border-blue-500/30', C: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', D: 'bg-green-500/20 text-green-400 border-green-500/30' };
@@ -940,10 +1024,11 @@ export default function MasterHostDashboard() {
                       </div>
                     );
                   })}
-                </div> : <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                </div> : gameType === 'shot-in-the-dark' ? <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
                   {[['answerMin', 'Minimum'], ['answerMax', 'Maximum'], ['answerStep', 'Step size']].map(([field, label]) => <label key={field} className="text-sm text-zinc-300">{label}<input type="number" value={q[field]} onChange={(e) => handleQuestionChange(qIndex, field, Number(e.target.value))} className="mt-1 w-full p-2.5 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label>)}
+                  <label className="sm:col-span-3 text-sm text-zinc-300">Scoring margin (±)<input type="number" min="0" value={q.scoringMargin ?? ''} onChange={(e) => handleQuestionChange(qIndex, 'scoringMargin', e.target.value === '' ? '' : Number(e.target.value))} placeholder="e.g. 10" className="mt-1 w-full p-2.5 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /><span className="block mt-1 text-xs text-zinc-500">Answers within this distance of the correct number score: 80% for closeness and 20% for speed. Leave blank to use the previous automatic margin.</span></label>
                   <label className="sm:col-span-3 text-sm text-zinc-300">Correct number <span className="text-zinc-500">(optional; can be set after guesses)</span><input type="number" value={q.correctNumber} onChange={(e) => handleQuestionChange(qIndex, 'correctNumber', e.target.value)} className="mt-1 w-full p-2.5 bg-zinc-950 border border-zinc-700 rounded-lg text-white" /></label>
-                </div>}
+                </div> : null}
 
                 <div className="flex gap-6 pt-4 border-t border-zinc-800">
                   {gameType === 'autocomplete-trivia' && <div><label className="block text-xs uppercase tracking-wider text-zinc-400 mb-1">Correct Answer</label><select className="p-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-teal-500 font-bold" value={q.correctAnswer} onChange={(e) => handleQuestionChange(qIndex, 'correctAnswer', e.target.value)}>{(q.autocompleteAnswers || []).map((answer) => <option key={answer} value={answer}>{answer}</option>)}</select></div>}

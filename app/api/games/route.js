@@ -24,8 +24,8 @@ export async function POST(request) {
     const gameId = gameResult.lastInsertRowid;
 
     const insertQuestion = db.prepare(`
-      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, timeline_items, timeline_top_label, timeline_bottom_label, time_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, scoring_margin, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, timeline_items, timeline_top_label, timeline_bottom_label, time_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((qs) => {
@@ -42,6 +42,7 @@ export async function POST(request) {
           q.answerMin ?? null,
           q.answerMax ?? null,
           q.answerStep ?? null,
+          q.scoringMargin === '' || q.scoringMargin === undefined ? null : q.scoringMargin,
           q.herdMode === 'least' ? 'least' : 'most',
           Array.isArray(q.simonSequence) ? JSON.stringify(q.simonSequence) : null,
           Array.isArray(q.autocompleteAnswers) ? JSON.stringify(q.autocompleteAnswers) : null,
@@ -92,6 +93,7 @@ export async function GET(request) {
         answerMin: q.answer_min ?? 0,
         answerMax: q.answer_max ?? 100,
         answerStep: q.answer_step ?? 1,
+        scoringMargin: q.scoring_margin ?? '',
         herdMode: q.herd_mode || 'most',
         simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
         autocompleteAnswers: q.autocomplete_answers ? JSON.parse(q.autocomplete_answers) : [],
@@ -164,8 +166,8 @@ export async function PUT(request) {
     db.prepare(`DELETE FROM questions WHERE game_id = ?`).run(id);
 
     const insertQuestion = db.prepare(`
-      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, timeline_items, timeline_top_label, timeline_bottom_label, time_limit)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO questions (game_id, question_text, option_a, option_b, option_c, option_d, correct_answer, correct_number, answer_min, answer_max, answer_step, scoring_margin, herd_mode, simon_sequence, autocomplete_answers, scramble_letters, pitch_points, timeline_items, timeline_top_label, timeline_bottom_label, time_limit)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((qs) => {
@@ -182,6 +184,7 @@ export async function PUT(request) {
           q.answerMin ?? null,
           q.answerMax ?? null,
           q.answerStep ?? null,
+          q.scoringMargin === '' || q.scoringMargin === undefined ? null : q.scoringMargin,
           q.herdMode === 'least' ? 'least' : 'most',
           Array.isArray(q.simonSequence) ? JSON.stringify(q.simonSequence) : null,
           Array.isArray(q.autocompleteAnswers) ? JSON.stringify(q.autocompleteAnswers) : null,

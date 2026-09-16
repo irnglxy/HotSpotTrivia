@@ -8,6 +8,20 @@ const hostAuth = require('./lib/host-auth.cjs');
 
 // Kept server-side so the browser never has to download the dictionary.
 const dictionaryWords = new Set(fs.readFileSync(wordListPath, 'utf8').split(/\r?\n/).map((word) => word.trim().toLowerCase()).filter(Boolean));
+const normalizeOpenTriviaAnswer = (answer) => String(answer || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+function groupOpenTriviaAnswers(answers) {
+  const groups = new Map();
+  Object.values(answers).forEach((entry) => {
+    const answer = String(entry.answer || '').trim();
+    const key = normalizeOpenTriviaAnswer(answer);
+    if (!key) return;
+    const group = groups.get(key) || { key, answer, count: 0 };
+    group.count += 1;
+    groups.set(key, group);
+  });
+  return [...groups.values()].sort((a, b) => b.count - a.count || a.answer.localeCompare(b.answer));
+}
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0'; // Must be 0.0.0.0 for cloud hosting
@@ -42,6 +56,7 @@ db.exec(`
     answer_min REAL,
     answer_max REAL,
     answer_step REAL,
+    scoring_margin REAL,
     herd_mode TEXT DEFAULT 'most',
     simon_sequence TEXT,
     autocomplete_answers TEXT,
@@ -68,6 +83,7 @@ ensureColumn('questions', 'correct_number', 'REAL');
 ensureColumn('questions', 'answer_min', 'REAL');
 ensureColumn('questions', 'answer_max', 'REAL');
 ensureColumn('questions', 'answer_step', 'REAL');
+ensureColumn('questions', 'scoring_margin', 'REAL');
 ensureColumn('questions', 'herd_mode', "TEXT DEFAULT 'most'");
 ensureColumn('questions', 'simon_sequence', 'TEXT');
 ensureColumn('questions', 'autocomplete_answers', 'TEXT');
@@ -104,6 +120,7 @@ app.prepare().then(() => {
     questionTimer: null,
     questionExpired: false,
     answersThisRound: {},
+    sliderDraftsThisRound: {},
     scrambleWordsThisRound: {},
     pitchScores: { A: 0, B: 0 },
     previousRanks: null,
@@ -115,7 +132,7 @@ app.prepare().then(() => {
 
   io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
-    const hostEvents = new Set(['host-master-lobby', 'set-signups-open', 'rename-player', 'remove-player', 'load-game', 'start-game', 'begin-first-question', 'start-player-picker', 'reveal-answers', 'score-shot-in-the-dark', 'show-scores', 'reveal-winner', 'reveal-pitch-winner', 'show-final-scores', 'end-game', 'return-to-library', 'next-question-btn']);
+    const hostEvents = new Set(['host-master-lobby', 'set-signups-open', 'rename-player', 'remove-player', 'load-game', 'start-game', 'begin-first-question', 'start-pitch-question', 'start-player-picker', 'reveal-answers', 'score-shot-in-the-dark', 'score-open-trivia', 'show-scores', 'reveal-winner', 'reveal-pitch-winner', 'show-final-scores', 'end-game', 'return-to-library', 'next-question-btn']);
     socket.use(([event], next) => {
       if (hostEvents.has(event) && event !== 'host-master-lobby' && socket.id !== partyState.hostId) return;
       next();
@@ -169,6 +186,10 @@ app.prepare().then(() => {
         status: partyState.status,
         signupsOpen: partyState.signupsOpen
       });
+      if (partyState.status === 'pitch-options-entry') {
+        const q = partyState.questions[partyState.currentQuestionIndex];
+        socket.emit('request-pitch-options', { questionText: q?.question_text, options: [q?.option_a || '', q?.option_b || ''] });
+      }
       console.log(`Host registered on master lobby.`);
     });
 
@@ -321,8 +342,31 @@ app.prepare().then(() => {
         io.to(MASTER_ROOM).emit('player-picker-setup', { totalPlayers: partyState.players.length });
         return;
       }
+      const question = partyState.questions[partyState.currentQuestionIndex];
+      if (question?.game_type === 'pitch-meeting') {
+        partyState.status = 'pitch-options-entry';
+        io.to(partyState.hostId).emit('request-pitch-options', { questionText: question.question_text, options: [question.option_a || '', question.option_b || ''] });
+        return;
+      }
       partyState.status = 'playing';
       sendNextQuestion(io, partyState);
+    });
+
+    socket.on('start-pitch-question', ({ optionA, optionB }, callback) => {
+      if (socket.id !== partyState.hostId || partyState.status !== 'pitch-options-entry') {
+        callback?.({ success: false, error: 'The pitch vote is not ready to start.' });
+        return;
+      }
+      const q = partyState.questions[partyState.currentQuestionIndex];
+      if (!q || q.game_type !== 'pitch-meeting') {
+        callback?.({ success: false, error: 'This is not a Pitch Meeting question.' });
+        return;
+      }
+      q.option_a = typeof optionA === 'string' && optionA.trim() ? optionA.trim().slice(0, 120) : q.option_a;
+      q.option_b = typeof optionB === 'string' && optionB.trim() ? optionB.trim().slice(0, 120) : q.option_b;
+      partyState.status = 'playing';
+      sendNextQuestion(io, partyState);
+      callback?.({ success: true });
     });
 
     socket.on('start-player-picker', ({ count }, callback) => {
@@ -363,6 +407,10 @@ app.prepare().then(() => {
       scoreShotInTheDark(io, partyState, correctNumber, socket, callback);
     });
 
+    socket.on('score-open-trivia', ({ correctAnswer, acceptedAnswers }, callback) => {
+      scoreOpenTrivia(io, partyState, correctAnswer, acceptedAnswers, socket, callback);
+    });
+
     // Host moves from answer chart to the round leaderboard (non-final questions)
     socket.on('show-scores', () => {
       showScores(io, partyState);
@@ -394,9 +442,34 @@ app.prepare().then(() => {
       partyState.currentQuestionIndex++;
 
       if (partyState.currentQuestionIndex < partyState.questions.length) {
+        const question = partyState.questions[partyState.currentQuestionIndex];
+        if (question.game_type === 'pitch-meeting') {
+          partyState.status = 'pitch-options-entry';
+          io.to(partyState.hostId).emit('request-pitch-options', { questionText: question.question_text, options: [question.option_a || '', question.option_b || ''] });
+          return;
+        }
         partyState.status = 'playing';
         sendNextQuestion(io, partyState);
       }
+    });
+
+    // Slider games keep a private draft while the player is adjusting it. A
+    // draft only becomes an answer if the player explicitly locks in or time ends.
+    socket.on('update-slider-draft', ({ answer }) => {
+      if (partyState.status !== 'playing' || partyState.questionExpired || partyState.answersThisRound[socket.id]) return;
+
+      const q = partyState.questions[partyState.currentQuestionIndex];
+      const numericAnswer = Number(answer);
+      if (q?.game_type === 'shot-in-the-dark') {
+        if (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max) return;
+      } else if (q?.game_type === 'pitch-meeting') {
+        const pitchPoints = q.pitch_points || 100;
+        if (!Number.isInteger(numericAnswer) || numericAnswer < 0 || numericAnswer > pitchPoints) return;
+      } else {
+        return;
+      }
+
+      partyState.sliderDraftsThisRound[socket.id] = numericAnswer;
     });
 
     // Player submits an answer
@@ -410,6 +483,7 @@ app.prepare().then(() => {
       const isFollowTheHerd = q.game_type === 'follow-the-herd';
       const isSimonSays = q.game_type === 'simon-says';
       const isAutocompleteTrivia = q.game_type === 'autocomplete-trivia';
+      const isOpenTrivia = q.game_type === 'open-trivia';
       const isPitchMeeting = q.game_type === 'pitch-meeting';
       const isTimeline = q.game_type === 'timeline';
       const numericAnswer = Number(answer);
@@ -418,6 +492,7 @@ app.prepare().then(() => {
       if (isSimonSays && (!Array.isArray(answer) || simonSequence.length === 0 || answer.length !== simonSequence.length || answer.some((color) => !['red', 'green', 'blue', 'orange'].includes(color)))) return;
       const autocompleteAnswers = isAutocompleteTrivia ? JSON.parse(q.autocomplete_answers || '[]') : [];
       if (isAutocompleteTrivia && (!autocompleteAnswers.includes(answer) || !q.correct_answer)) return;
+      if (isOpenTrivia && (typeof answer !== 'string' || !answer.trim())) return;
       const pitchPoints = q.pitch_points || 100;
       if (isPitchMeeting && (!Number.isInteger(numericAnswer) || numericAnswer < 0 || numericAnswer > pitchPoints)) return;
       const timelineItems = isTimeline ? JSON.parse(q.timeline_items || '[]') : [];
@@ -434,17 +509,18 @@ app.prepare().then(() => {
       const isCorrect = isSimonSays
         ? answer.every((color, index) => color === simonSequence[index])
         : isTimeline ? correctTimelineItems === timelineItems.length
-        : !isShotInTheDark && !isFollowTheHerd && answer === q.correct_answer;
+        : !isShotInTheDark && !isFollowTheHerd && !isOpenTrivia && answer === q.correct_answer;
       const pointsEarned = isSimonSays
         ? (correctSimonColors * 50) + (isCorrect ? 250 + Math.round(250 * Math.max(0, 1 - (timeTaken / timeLimit))) : 0)
         : isTimeline ? (correctTimelineItems * 100) + (correctTimelineItems === timelineItems.length ? 400 : 0) + Math.round(200 * Math.max(0, 1 - (timeTaken / timeLimit)))
         : isCorrect ? Math.round(500 + (500 * Math.max(0, 1 - (timeTaken / timeLimit)))) : 0;
 
-      partyState.answersThisRound[socket.id] = { answer: isShotInTheDark || isPitchMeeting ? numericAnswer : answer, isCorrect, pointsEarned, timeTaken };
+      partyState.answersThisRound[socket.id] = { answer: isShotInTheDark || isPitchMeeting ? numericAnswer : isOpenTrivia ? answer.trim().slice(0, 120) : answer, isCorrect, pointsEarned, timeTaken };
+      delete partyState.sliderDraftsThisRound[socket.id];
       if (isTimeline) partyState.answersThisRound[socket.id].correctItems = correctTimelineItems;
 
       const player = partyState.players.find(p => p.id === socket.id);
-      if (player && !isShotInTheDark && !isFollowTheHerd && !isPitchMeeting) {
+      if (player && !isShotInTheDark && !isFollowTheHerd && !isPitchMeeting && !isOpenTrivia) {
         player.score += pointsEarned;
       }
 
@@ -581,8 +657,7 @@ function syncPlayerToCurrentState(socket, partyState) {
   }
 
   if (partyState.status === 'results') {
-    sendCurrentQuestion();
-    socket.emit('question-time-up');
+    socket.emit('awaiting-next-question');
     return;
   }
 
@@ -614,6 +689,7 @@ function sendNextQuestion(io, partyState) {
   partyState.questionExpired = false;
   clearTimeout(partyState.questionTimer);
   partyState.answersThisRound = {};
+  partyState.sliderDraftsThisRound = {};
   partyState.scrambleWordsThisRound = {};
   partyState.lastBreakdown = null;
   partyState.lastWinner = null;
@@ -621,10 +697,36 @@ function sendNextQuestion(io, partyState) {
   io.to("PARTY").emit('next-question', buildQuestionPayload(partyState, q));
   partyState.questionTimer = setTimeout(() => {
     if (partyState.status === 'playing' && partyState.currentQuestionIndex === questionIndex) {
+      lockSliderDrafts(partyState);
       partyState.questionExpired = true;
       io.to("PARTY").emit('question-time-up');
     }
   }, (q.time_limit || 15) * 1000);
+}
+
+function lockSliderDrafts(partyState) {
+  const q = partyState.questions[partyState.currentQuestionIndex];
+  if (!q || (q.game_type !== 'shot-in-the-dark' && q.game_type !== 'pitch-meeting')) return;
+
+  const timeTaken = Math.max(0, (Date.now() - partyState.questionStartTime) / 1000);
+  const pitchPoints = q.pitch_points || 100;
+  for (const [playerId, answer] of Object.entries(partyState.sliderDraftsThisRound)) {
+    if (partyState.answersThisRound[playerId] || !partyState.players.some((player) => player.id === playerId)) continue;
+
+    const isShotInTheDark = q.game_type === 'shot-in-the-dark';
+    const isValid = isShotInTheDark
+      ? Number.isFinite(answer) && answer >= q.answer_min && answer <= q.answer_max
+      : Number.isInteger(answer) && answer >= 0 && answer <= pitchPoints;
+    if (!isValid) continue;
+
+    partyState.answersThisRound[playerId] = {
+      answer,
+      isCorrect: false,
+      pointsEarned: 0,
+      timeTaken
+    };
+  }
+  partyState.sliderDraftsThisRound = {};
 }
 
 function revealAnswers(io, partyState) {
@@ -633,8 +735,10 @@ function revealAnswers(io, partyState) {
   clearTimeout(partyState.questionTimer);
 
   const q = partyState.questions[partyState.currentQuestionIndex];
+  lockSliderDrafts(partyState);
   if (q.game_type === 'shot-in-the-dark') {
     partyState.status = 'answer-entry';
+    io.to("PARTY").emit('question-time-up');
     io.to(partyState.hostId).emit('request-correct-number', {
       questionText: q.question_text,
       correctNumber: q.correct_number ?? ''
@@ -655,6 +759,17 @@ function revealAnswers(io, partyState) {
     };
     partyState.lastBreakdown = payload;
     io.to('PARTY').emit('answer-breakdown', payload);
+    return;
+  }
+
+  if (q.game_type === 'open-trivia') {
+    partyState.status = 'answer-entry';
+    io.to('PARTY').emit('question-time-up');
+    io.to(partyState.hostId).emit('request-open-trivia-scoring', {
+      questionText: q.question_text,
+      correctAnswer: q.correct_answer || '',
+      answerGroups: groupOpenTriviaAnswers(partyState.answersThisRound)
+    });
     return;
   }
 
@@ -831,10 +946,19 @@ function scoreShotInTheDark(io, partyState, correctNumber, socket, callback) {
   const answerRange = Math.abs(q.answer_max - q.answer_min);
   const rangeTolerance = answerRange * 0.2;
   const correctValueTolerance = Math.abs(correct) * 0.2;
-  const scoringTolerance = correctValueTolerance === 0 ? rangeTolerance : Math.min(correctValueTolerance, rangeTolerance);
+  const fallbackMargin = correctValueTolerance === 0 ? rangeTolerance : Math.min(correctValueTolerance, rangeTolerance);
+  const configuredMargin = Number(q.scoring_margin);
+  const scoringMargin = Number.isFinite(configuredMargin) && configuredMargin > 0 ? configuredMargin : fallbackMargin;
+  const timeLimit = q.time_limit || 15;
   const guesses = Object.entries(partyState.answersThisRound).map(([playerId, entry]) => {
     const difference = Math.abs(entry.answer - correct);
-    const pointsEarned = difference === 0 ? 1200 : scoringTolerance > 0 && difference <= scoringTolerance ? Math.round(100 + 800 * (1 - difference / scoringTolerance)) : 0;
+    const closenessPoints = scoringMargin > 0 && difference <= scoringMargin
+      ? 800 * (1 - difference / scoringMargin)
+      : 0;
+    const speedPoints = scoringMargin > 0 && difference <= scoringMargin
+      ? 200 * Math.max(0, 1 - (entry.timeTaken / timeLimit))
+      : 0;
+    const pointsEarned = difference === 0 ? 1300 : Math.round(closenessPoints + speedPoints);
     entry.pointsEarned = pointsEarned;
     const player = partyState.players.find((candidate) => candidate.id === playerId);
     if (player) player.score += pointsEarned;
@@ -844,12 +968,58 @@ function scoreShotInTheDark(io, partyState, correctNumber, socket, callback) {
   partyState.status = 'answer-reveal';
   const payload = {
     gameType: 'shot-in-the-dark', questionText: q.question_text, correctNumber: correct,
-    guesses, totalAnswers: guesses.length, totalPlayers: partyState.players.length,
+    scoringMargin, guesses, totalAnswers: guesses.length, totalPlayers: partyState.players.length,
     questionNumber: partyState.currentQuestionIndex + 1, totalQuestions: partyState.questions.length,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
   partyState.lastBreakdown = payload;
   io.to("PARTY").emit('answer-breakdown', payload);
+  callback?.({ success: true, payload });
+}
+
+function scoreOpenTrivia(io, partyState, correctAnswer, acceptedAnswers, socket, callback) {
+  if (socket.id !== partyState.hostId || partyState.status !== 'answer-entry') {
+    callback?.({ success: false, error: 'This question is not ready to score.' });
+    return;
+  }
+  const q = partyState.questions[partyState.currentQuestionIndex];
+  const officialAnswer = typeof correctAnswer === 'string' ? correctAnswer.trim().slice(0, 120) : '';
+  if (!q || q.game_type !== 'open-trivia' || !officialAnswer) {
+    callback?.({ success: false, error: 'Enter the correct answer before scoring.' });
+    return;
+  }
+
+  const accepted = new Set(Array.isArray(acceptedAnswers) ? acceptedAnswers.map(normalizeOpenTriviaAnswer).filter(Boolean) : []);
+  accepted.add(normalizeOpenTriviaAnswer(officialAnswer));
+  db.prepare('UPDATE questions SET correct_answer = ? WHERE id = ?').run(officialAnswer, q.id);
+  q.correct_answer = officialAnswer;
+
+  const timeLimit = q.time_limit || 15;
+  Object.values(partyState.answersThisRound).forEach((entry) => {
+    entry.isCorrect = accepted.has(normalizeOpenTriviaAnswer(entry.answer));
+    entry.pointsEarned = entry.isCorrect
+      ? Math.round(500 + (500 * Math.max(0, 1 - (entry.timeTaken / timeLimit))))
+      : 0;
+  });
+  partyState.players.forEach((player) => {
+    const entry = partyState.answersThisRound[player.id];
+    if (entry?.isCorrect) player.score += entry.pointsEarned;
+  });
+
+  partyState.status = 'answer-reveal';
+  const answerCounts = groupOpenTriviaAnswers(partyState.answersThisRound).map((group) => ({
+    ...group,
+    isCorrect: accepted.has(group.key)
+  }));
+  const payload = {
+    gameType: 'open-trivia', questionText: q.question_text, correctAnswer: officialAnswer,
+    answerCounts, totalAnswers: Object.keys(partyState.answersThisRound).length,
+    totalPlayers: partyState.players.length, questionNumber: partyState.currentQuestionIndex + 1,
+    totalQuestions: partyState.questions.length,
+    isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
+  };
+  partyState.lastBreakdown = payload;
+  io.to('PARTY').emit('answer-breakdown', payload);
   callback?.({ success: true, payload });
 }
 

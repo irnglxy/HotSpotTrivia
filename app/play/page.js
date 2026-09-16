@@ -63,6 +63,7 @@ export default function PlayPage() {
   const [pitchAllocation, setPitchAllocation] = useState(null);
   const [simonInput, setSimonInput] = useState([]);
   const [autocompleteInput, setAutocompleteInput] = useState('');
+  const [openTriviaInput, setOpenTriviaInput] = useState('');
   const [scrambleLetterIndexes, setScrambleLetterIndexes] = useState([]);
   const [scrambleLetterOrder, setScrambleLetterOrder] = useState([]);
   const [scrambleWords, setScrambleWords] = useState([]);
@@ -72,6 +73,7 @@ export default function PlayPage() {
   const [showPodiumPlace, setShowPodiumPlace] = useState(false);
   const [introTitle, setIntroTitle] = useState(null);
   const [roundPoints, setRoundPoints] = useState(null);
+  const [awaitingNextQuestion, setAwaitingNextQuestion] = useState(false);
   const [pickerSelected, setPickerSelected] = useState(false);
   const [playerRemoved, setPlayerRemoved] = useState(false);
 
@@ -91,6 +93,7 @@ export default function PlayPage() {
       setPitchAllocation(normalizedQuestion.gameType === 'pitch-meeting' ? normalizedQuestion.pitchPoints / 2 : null);
       setSimonInput([]);
       setAutocompleteInput('');
+      setOpenTriviaInput('');
       setScrambleLetterIndexes([]);
       setScrambleLetterOrder(isScrambleQuestion ? shuffledIndexes(normalizedQuestion.scrambleLetters.length) : []);
       setScrambleWords([]);
@@ -99,21 +102,35 @@ export default function PlayPage() {
       setPodiumPlace(null);
       setShowPodiumPlace(false);
       setRoundPoints(null);
+      setAwaitingNextQuestion(false);
       setPickerSelected(false);
     });
-    socket.on('game-intro', (data) => { setGameStarted(true); setCurrentQuestion(null); setIntroTitle(data.title); });
+    socket.on('game-intro', (data) => { setGameStarted(true); setCurrentQuestion(null); setIntroTitle(data.title); setAwaitingNextQuestion(false); });
 
     socket.on('answer-breakdown', () => {
       setAnswered(true);
     });
 
-    socket.on('round-points', ({ roundPoints: points }) => setRoundPoints(points));
+    socket.on('round-points', ({ roundPoints: points }) => {
+      setRoundPoints(points);
+      setAwaitingNextQuestion(true);
+    });
+
+    socket.on('awaiting-next-question', () => {
+      setGameStarted(true);
+      setCurrentQuestion(null);
+      setAnswered(false);
+      setSelectedAnswer(null);
+      setRoundPoints(null);
+      setAwaitingNextQuestion(true);
+    });
 
     socket.on('player-picker-result', ({ players }) => {
       setPickerSelected(players.some((player) => player.id === socket.id));
       setGameStarted(false);
       setCurrentQuestion(null);
       setIntroTitle(null);
+      setAwaitingNextQuestion(false);
     });
 
     socket.on('player-removed', () => {
@@ -123,6 +140,7 @@ export default function PlayPage() {
       setCurrentQuestion(null);
       setIntroTitle(null);
       setRoundPoints(null);
+      setAwaitingNextQuestion(false);
       setPickerSelected(false);
       setPlayerRemoved(true);
     });
@@ -143,16 +161,19 @@ export default function PlayPage() {
       if (data.gameType === 'pitch-meeting') {
         setGameStarted(false);
         setCurrentQuestion(null);
+        setAwaitingNextQuestion(false);
         return;
       }
       const playerResult = data.podium?.find((player) => player.id === socket.id);
       setPodiumPlace(playerResult?.place ?? null);
       setShowPodiumPlace(false);
+      setAwaitingNextQuestion(false);
     });
 
     socket.on('game-over', () => {
       setGameStarted(false);
       setCurrentQuestion(null);
+      setAwaitingNextQuestion(false);
     });
 
     socket.on('game-ended', () => {
@@ -164,11 +185,12 @@ export default function PlayPage() {
       setShowPodiumPlace(false);
       setIntroTitle(null);
       setRoundPoints(null);
+      setAwaitingNextQuestion(false);
       setPickerSelected(false);
     });
 
     socket.on('room-closed', () => {
-      setJoined(false); setGameStarted(false); setCurrentQuestion(null); setPlayerRemoved(false); setRoomClosed(true);
+      setJoined(false); setGameStarted(false); setCurrentQuestion(null); setAwaitingNextQuestion(false); setPlayerRemoved(false); setRoomClosed(true);
     });
     socket.on('room-opened', () => { setRoomClosed(false); setPlayerRemoved(false); });
 
@@ -177,6 +199,7 @@ export default function PlayPage() {
       socket.off('game-intro');
       socket.off('answer-breakdown');
       socket.off('round-points');
+      socket.off('awaiting-next-question');
       socket.off('player-picker-result');
       socket.off('player-removed');
       socket.off('question-time-up');
@@ -293,6 +316,7 @@ export default function PlayPage() {
   const isPitchMeeting = currentQuestion?.gameType === 'pitch-meeting';
   const isSimonSays = currentQuestion?.gameType === 'simon-says';
   const isAutocompleteTrivia = currentQuestion?.gameType === 'autocomplete-trivia';
+  const isOpenTrivia = currentQuestion?.gameType === 'open-trivia';
   const isWordScramble = currentQuestion?.gameType === 'word-scramble';
   const isTimeline = currentQuestion?.gameType === 'timeline';
   const timelineSensors = useSensors(
@@ -307,7 +331,11 @@ export default function PlayPage() {
   };
 
   const adjustGuess = (amount) => {
-    setGuessValue((current) => Math.min(currentQuestion.answerMax, Math.max(currentQuestion.answerMin, Number((current + amount).toFixed(8)))));
+    setGuessValue((current) => {
+      const nextValue = Math.min(currentQuestion.answerMax, Math.max(currentQuestion.answerMin, Number((current + amount).toFixed(8))));
+      socket.emit('update-slider-draft', { answer: nextValue });
+      return nextValue;
+    });
   };
 
   const handleSimonColor = (color) => {
@@ -481,7 +509,15 @@ export default function PlayPage() {
       {joined && !isEditingName && introTitle && <div className="text-center my-auto p-8 bg-zinc-900 border border-purple-700 rounded-3xl mx-auto max-w-md w-full"><p className="text-purple-300 uppercase tracking-[0.25em] font-bold mb-4">Get ready for</p><h2 className="text-4xl font-black text-white">{introTitle}</h2></div>}
 
       {/* 3. QUESTION + ANSWER BUTTONS */}
-      {joined && !isEditingName && gameStarted && currentQuestion && !podiumPlace && (
+      {joined && !isEditingName && awaitingNextQuestion && !podiumPlace && (
+        <div className="text-center my-auto p-8 bg-zinc-900 border border-zinc-800 rounded-3xl mx-auto max-w-md w-full">
+          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+          <h2 className="text-2xl font-black text-white mb-2">Round complete!</h2>
+          <p className="text-zinc-400">Wait for Deven and Ned to start the next question.</p>
+        </div>
+      )}
+
+      {joined && !isEditingName && gameStarted && currentQuestion && !awaitingNextQuestion && !podiumPlace && (
         <div className="w-full max-w-md mx-auto my-auto flex flex-col justify-center">
           <p className="text-center text-xs uppercase tracking-widest text-zinc-500 font-semibold mb-2">
             Question {currentQuestion.questionNumber} of {currentQuestion.totalQuestions}
@@ -491,9 +527,11 @@ export default function PlayPage() {
           </h2>}
 
           {!answered && isPitchMeeting ? (
-            <div className="space-y-6 text-center"><div className="bg-zinc-900 border border-sky-700 rounded-3xl p-6"><div className="flex justify-between gap-4 text-xl font-black"><span className="text-red-300 text-left">{currentQuestion.options[0]}<strong className="block text-4xl text-white mt-2">{pitchAllocation}</strong></span><span className="text-blue-300 text-right">{currentQuestion.options[1]}<strong className="block text-4xl text-white mt-2">{currentQuestion.pitchPoints - pitchAllocation}</strong></span></div><input type="range" min="0" max={currentQuestion.pitchPoints} step="1" value={currentQuestion.pitchPoints - (pitchAllocation ?? currentQuestion.pitchPoints / 2)} onChange={(e) => setPitchAllocation(currentQuestion.pitchPoints - Number(e.target.value))} className="w-full mt-8 accent-sky-400" /></div><button onClick={() => handleAnswerClick(pitchAllocation)} className="w-full bg-sky-500 hover:bg-sky-400 text-zinc-950 p-4 rounded-2xl font-black text-lg">Lock In Allocation</button></div>
+            <div className="space-y-6 text-center"><div className="bg-zinc-900 border border-sky-700 rounded-3xl p-6"><div className="flex justify-between gap-4 text-xl font-black"><span className="text-red-300 text-left">{currentQuestion.options[0]}<strong className="block text-4xl text-white mt-2">{pitchAllocation}</strong></span><span className="text-blue-300 text-right">{currentQuestion.options[1]}<strong className="block text-4xl text-white mt-2">{currentQuestion.pitchPoints - pitchAllocation}</strong></span></div><input type="range" min="0" max={currentQuestion.pitchPoints} step="1" value={currentQuestion.pitchPoints - (pitchAllocation ?? currentQuestion.pitchPoints / 2)} onChange={(e) => { const nextAllocation = currentQuestion.pitchPoints - Number(e.target.value); setPitchAllocation(nextAllocation); socket.emit('update-slider-draft', { answer: nextAllocation }); }} className="w-full mt-8 accent-sky-400" /></div><button onClick={() => handleAnswerClick(pitchAllocation)} className="w-full bg-sky-500 hover:bg-sky-400 text-zinc-950 p-4 rounded-2xl font-black text-lg">Lock In Allocation</button></div>
           ) : !answered && isWordScramble ? (
             <div className="space-y-5"><p className="text-center text-[#B8C22E] font-bold">Tap letters to build as many words as you can.</p><div className="min-h-20 bg-zinc-900 border border-[#2A97CE] rounded-2xl p-4 flex items-center justify-center"><span className={`text-3xl font-black tracking-[0.2em] ${scrambleWord ? 'text-[#2A97CE]' : 'text-zinc-600'}`}>{scrambleWord || 'YOUR WORD'}</span></div><div className="grid grid-cols-4 gap-2 max-w-xs mx-auto">{scrambleLetterOrder.map((index) => { const letter = currentQuestion.scrambleLetters[index]; return <button key={`${letter}-${index}`} onClick={() => addScrambleLetter(index)} disabled={scrambleLetterIndexes.includes(index)} className={`aspect-square rounded-xl flex items-center justify-center text-2xl font-black shadow-lg transition active:scale-95 ${scrambleLetterIndexes.includes(index) ? 'bg-zinc-800 text-zinc-600 opacity-50' : 'bg-[#B8C22E] active:bg-[#a7b127] text-zinc-950'}`}>{letter}</button>; })}</div><form onSubmit={submitScrambleWord} className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setScrambleLetterIndexes((indexes) => indexes.slice(0, -1))} disabled={!scrambleLetterIndexes.length} className="bg-zinc-800 disabled:opacity-40 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl">Undo</button><button type="button" onClick={() => setScrambleLetterIndexes([])} disabled={!scrambleLetterIndexes.length} className="bg-zinc-800 disabled:opacity-40 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl">Clear Word</button><button type="submit" disabled={scrambleWord.length < 3} className="col-span-2 bg-[#B8C22E] disabled:opacity-40 hover:bg-[#a7b127] text-zinc-950 font-black py-4 rounded-2xl">Submit Word</button></form>{scrambleError && <p className="text-center text-rose-300 text-sm font-bold">{scrambleError}</p>}<div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4"><div className="flex justify-between text-sm font-bold mb-3"><span className="text-zinc-300">Your words</span><span className="text-[#2A97CE]">{scrambleWords.length} found</span></div>{scrambleWords.length ? <div className="flex flex-wrap gap-2">{scrambleWords.map((entry) => <span key={entry.word} className="bg-[#B8C22E]/15 border border-[#B8C22E] text-[#B8C22E] rounded-lg px-3 py-2 font-bold">{entry.word} <span className="text-[#2A97CE] text-xs">+{entry.pointsEarned}</span></span>)}</div> : <p className="text-zinc-500 text-sm">Words you add will appear here.</p>}</div></div>
+          ) : !answered && isOpenTrivia ? (
+            <form onSubmit={(event) => { event.preventDefault(); if (openTriviaInput.trim()) handleAnswerClick(openTriviaInput.trim()); }} className="space-y-4"><p className="text-center text-orange-300 font-bold">Type your answer, then lock it in.</p><input autoFocus type="text" value={openTriviaInput} onChange={(event) => setOpenTriviaInput(event.target.value)} placeholder="Type your answer..." maxLength={120} className="w-full p-4 bg-zinc-900 border border-orange-700 rounded-2xl text-white text-lg font-bold focus:outline-none focus:border-orange-400" /><button type="submit" disabled={!openTriviaInput.trim()} className="w-full bg-orange-500 disabled:opacity-40 hover:bg-orange-400 text-zinc-950 p-4 rounded-2xl font-black text-lg">Lock In Answer</button></form>
           ) : !answered && isAutocompleteTrivia ? (
             <div className="space-y-4"><p className="text-center text-teal-300 font-bold">Start typing your answer, then choose a suggestion.</p><input autoFocus type="text" value={autocompleteInput} onChange={(e) => setAutocompleteInput(e.target.value)} placeholder="Type an answer..." className="w-full p-4 bg-zinc-900 border border-teal-700 rounded-2xl text-white text-lg font-bold focus:outline-none focus:border-teal-400" />{autocompleteInput.trim() && <div className="space-y-2">{(currentQuestion.autocompleteAnswers || []).filter((answer) => normalizeAutocompleteText(answer).includes(normalizeAutocompleteText(autocompleteInput))).slice(0, 6).map((answer) => <button key={answer} onClick={() => handleAnswerClick(answer)} className="w-full text-left p-4 bg-zinc-900 hover:bg-teal-950 border border-zinc-700 hover:border-teal-500 rounded-2xl text-white font-bold transition">{answer}</button>)}{!(currentQuestion.autocompleteAnswers || []).some((answer) => normalizeAutocompleteText(answer).includes(normalizeAutocompleteText(autocompleteInput))) && <p className="text-center text-zinc-500 py-4">No matching answer yet—try a different search.</p>}</div>}</div>
           ) : !answered && isSimonSays ? (
@@ -510,7 +548,7 @@ export default function PlayPage() {
           ) : !answered && isShotInTheDark ? (
             <div className="space-y-6 text-center">
               <p className="text-zinc-400 font-semibold">Move the slider to make your best estimate:</p>
-              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6"><p className="text-5xl font-black text-white">{guessValue}</p><div><input type="range" min={currentQuestion.answerMin} max={currentQuestion.answerMax} step={currentQuestion.answerStep} value={guessValue ?? currentQuestion.answerMin} onChange={(e) => setGuessValue(Number(e.target.value))} className="w-full accent-purple-500" /><div className="flex justify-between text-xs text-zinc-500 mt-2"><span>{currentQuestion.answerMin}</span><span>{currentQuestion.answerMax}</span></div></div><div className="flex justify-center gap-4"><button onClick={() => adjustGuess(-currentQuestion.answerStep)} className="bg-zinc-800 w-16 h-14 rounded-xl font-black text-3xl">−</button><button onClick={() => adjustGuess(currentQuestion.answerStep)} className="bg-zinc-800 w-16 h-14 rounded-xl font-black text-3xl">+</button></div></div>
+              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 space-y-6"><p className="text-5xl font-black text-white">{guessValue}</p><div><input type="range" min={currentQuestion.answerMin} max={currentQuestion.answerMax} step={currentQuestion.answerStep} value={guessValue ?? currentQuestion.answerMin} onChange={(e) => { const nextValue = Number(e.target.value); setGuessValue(nextValue); socket.emit('update-slider-draft', { answer: nextValue }); }} className="w-full accent-purple-500" /><div className="flex justify-between text-xs text-zinc-500 mt-2"><span>{currentQuestion.answerMin}</span><span>{currentQuestion.answerMax}</span></div></div><div className="flex justify-center gap-4"><button onClick={() => adjustGuess(-currentQuestion.answerStep)} className="bg-zinc-800 w-16 h-14 rounded-xl font-black text-3xl">−</button><button onClick={() => adjustGuess(currentQuestion.answerStep)} className="bg-zinc-800 w-16 h-14 rounded-xl font-black text-3xl">+</button></div></div>
               <button onClick={() => handleAnswerClick(guessValue)} className="w-full bg-purple-600 hover:bg-purple-500 p-4 rounded-2xl font-black text-lg">Lock In {guessValue}</button>
             </div>
           ) : !answered ? (
@@ -541,7 +579,7 @@ export default function PlayPage() {
             </div>
           ) : (
             <div className="text-center py-12 bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
-              {isAutocompleteTrivia ? <div className="max-w-full overflow-x-auto whitespace-nowrap bg-teal-950/60 border border-teal-600 text-teal-200 rounded-2xl px-4 py-3 mb-4 text-lg font-bold">{selectedAnswer}</div> : <div className="w-20 h-20 bg-purple-600/20 border border-purple-500 text-purple-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-bounce">
+              {isAutocompleteTrivia || isOpenTrivia ? <div className={`max-w-full overflow-x-auto whitespace-nowrap rounded-2xl px-4 py-3 mb-4 text-lg font-bold ${isOpenTrivia ? 'bg-orange-950/60 border border-orange-600 text-orange-200' : 'bg-teal-950/60 border border-teal-600 text-teal-200'}`}>{selectedAnswer}</div> : <div className="w-20 h-20 bg-purple-600/20 border border-purple-500 text-purple-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-bounce">
                 {isTimeline ? '✓' : selectedAnswer}
               </div>}
               <h2 className="text-2xl font-bold text-white mb-2">{selectedAnswer ? 'Locked In!' : 'Time is up'}</h2>
