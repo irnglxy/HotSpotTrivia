@@ -26,6 +26,13 @@ function groupOpenTriviaAnswers(answers) {
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0'; // Must be 0.0.0.0 for cloud hosting
 const port = process.env.PORT || 3000; // Cloud hosts assign a dynamic port
+const appReleaseId = (() => {
+  try {
+    return fs.readFileSync('.next/BUILD_ID', 'utf8').trim();
+  } catch {
+    return process.env.RENDER_GIT_COMMIT || 'development';
+  }
+})();
 
 const app = next({ dev, hostname, port });
 const handler = app.getRequestHandler();
@@ -204,6 +211,7 @@ app.prepare().then(() => {
         return;
       }
       socket.join(MASTER_ROOM);
+      socket.emit('app-release', { releaseId: appReleaseId });
       
       // A browser keeps its player key, so refreshing it updates the same player.
       const existingPlayer = partyState.players.find(p => p.id === socket.id || (playerKey && p.playerKey === playerKey));
@@ -473,12 +481,14 @@ app.prepare().then(() => {
     });
 
     // Player submits an answer
-    socket.on('submit-answer', ({ answer }) => {
-      if (partyState.status !== 'playing') return;
-      if (partyState.questionExpired) return;
-      if (partyState.answersThisRound[socket.id]) return; // prevent double submission
+    socket.on('submit-answer', ({ answer }, callback) => {
+      const reject = (error) => callback?.({ success: false, error });
+      if (partyState.status !== 'playing') return reject('This question is no longer accepting answers.');
+      if (partyState.questionExpired) return reject('Time is up for this question.');
+      if (partyState.answersThisRound[socket.id]) return callback?.({ success: true, alreadyRecorded: true });
 
       const q = partyState.questions[partyState.currentQuestionIndex];
+      if (!q) return reject('No question is currently active.');
       const isShotInTheDark = q.game_type === 'shot-in-the-dark';
       const isFollowTheHerd = q.game_type === 'follow-the-herd';
       const isSimonSays = q.game_type === 'simon-says';
@@ -487,16 +497,16 @@ app.prepare().then(() => {
       const isPitchMeeting = q.game_type === 'pitch-meeting';
       const isTimeline = q.game_type === 'timeline';
       const numericAnswer = Number(answer);
-      if (isShotInTheDark && (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max)) return;
+      if (isShotInTheDark && (!Number.isFinite(numericAnswer) || numericAnswer < q.answer_min || numericAnswer > q.answer_max)) return reject('Choose a number within the available range.');
       const simonSequence = isSimonSays ? JSON.parse(q.simon_sequence || '[]') : [];
-      if (isSimonSays && (!Array.isArray(answer) || simonSequence.length === 0 || answer.length !== simonSequence.length || answer.some((color) => !['red', 'green', 'blue', 'orange'].includes(color)))) return;
+      if (isSimonSays && (!Array.isArray(answer) || simonSequence.length === 0 || answer.length !== simonSequence.length || answer.some((color) => !['red', 'green', 'blue', 'orange'].includes(color)))) return reject('Complete the full color sequence first.');
       const autocompleteAnswers = isAutocompleteTrivia ? JSON.parse(q.autocomplete_answers || '[]') : [];
-      if (isAutocompleteTrivia && (!autocompleteAnswers.includes(answer) || !q.correct_answer)) return;
-      if (isOpenTrivia && (typeof answer !== 'string' || !answer.trim())) return;
+      if (isAutocompleteTrivia && (!autocompleteAnswers.includes(answer) || !q.correct_answer)) return reject('Choose an answer from the suggestions.');
+      if (isOpenTrivia && (typeof answer !== 'string' || !answer.trim())) return reject('Type an answer before locking it in.');
       const pitchPoints = q.pitch_points || 100;
-      if (isPitchMeeting && (!Number.isInteger(numericAnswer) || numericAnswer < 0 || numericAnswer > pitchPoints)) return;
+      if (isPitchMeeting && (!Number.isInteger(numericAnswer) || numericAnswer < 0 || numericAnswer > pitchPoints)) return reject('Choose a valid allocation.');
       const timelineItems = isTimeline ? JSON.parse(q.timeline_items || '[]') : [];
-      if (isTimeline && (!Array.isArray(answer) || timelineItems.length !== 6 || answer.length !== timelineItems.length || new Set(answer).size !== answer.length || answer.some((item) => !timelineItems.includes(item)))) return;
+      if (isTimeline && (!Array.isArray(answer) || timelineItems.length !== 6 || answer.length !== timelineItems.length || new Set(answer).size !== answer.length || answer.some((item) => !timelineItems.includes(item)))) return reject('Arrange all six items before locking in.');
 
       const timeTaken = (Date.now() - partyState.questionStartTime) / 1000;
       const timeLimit = q.time_limit || 30;
@@ -531,6 +541,7 @@ app.prepare().then(() => {
           totalPlayers: partyState.players.length
         });
       }
+      callback?.({ success: true });
     });
 
     socket.on('submit-scramble-word', ({ word }, callback) => {

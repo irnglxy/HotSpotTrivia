@@ -14,6 +14,7 @@ const EMOJIS = [
 ];
 const COLORS = ['#a855f7', '#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
 const PLAYER_STORAGE_KEY = 'hotspot-trivia-player';
+const APP_RELEASE_STORAGE_KEY = 'hotspot-trivia-app-release';
 const normalizeAutocompleteText = (text) => text.toLowerCase().replace(/\bthe\b/g, '').replace(/[^a-z0-9]/g, '');
 const shuffledIndexes = (length) => {
   const indexes = Array.from({ length }, (_, index) => index);
@@ -59,6 +60,8 @@ export default function PlayPage() {
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [answered, setAnswered] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+  const [answerSubmissionError, setAnswerSubmissionError] = useState('');
   const [guessValue, setGuessValue] = useState(null);
   const [pitchAllocation, setPitchAllocation] = useState(null);
   const [simonInput, setSimonInput] = useState([]);
@@ -78,6 +81,13 @@ export default function PlayPage() {
   const [playerRemoved, setPlayerRemoved] = useState(false);
 
   useEffect(() => {
+    const handleAppRelease = ({ releaseId }) => {
+      if (!releaseId) return;
+      const previousReleaseId = localStorage.getItem(APP_RELEASE_STORAGE_KEY);
+      localStorage.setItem(APP_RELEASE_STORAGE_KEY, releaseId);
+      if (previousReleaseId && previousReleaseId !== releaseId) window.location.reload();
+    };
+
     socket.on('next-question', (qData) => {
       const isScrambleQuestion = qData.gameType === 'word-scramble' || Boolean(qData.scrambleLetters);
       const isPitchQuestion = qData.gameType === 'pitch-meeting' || qData.pitchPoints !== undefined;
@@ -89,6 +99,8 @@ export default function PlayPage() {
       setCurrentQuestion(normalizedQuestion);
       setAnswered(false);
       setSelectedAnswer(null);
+      setIsSubmittingAnswer(false);
+      setAnswerSubmissionError('');
       setGuessValue(normalizedQuestion.gameType === 'shot-in-the-dark' ? Number(normalizedQuestion.answerMin) : null);
       setPitchAllocation(normalizedQuestion.gameType === 'pitch-meeting' ? normalizedQuestion.pitchPoints / 2 : null);
       setSimonInput([]);
@@ -148,6 +160,8 @@ export default function PlayPage() {
     socket.on('question-time-up', () => {
       setAnswered(true);
       setSelectedAnswer(null);
+      setIsSubmittingAnswer(false);
+      setAnswerSubmissionError('');
     });
 
     socket.on('player-answer-state', ({ answer, scrambleWords: savedScrambleWords, isWordScramble: savedWordScramble }) => {
@@ -155,6 +169,8 @@ export default function PlayPage() {
       if (savedWordScramble) return;
       setAnswered(true);
       setSelectedAnswer(Array.isArray(answer) ? '✓' : answer ?? null);
+      setIsSubmittingAnswer(false);
+      setAnswerSubmissionError('');
     });
 
     socket.on('winner-reveal', (data) => {
@@ -193,6 +209,7 @@ export default function PlayPage() {
       setJoined(false); setGameStarted(false); setCurrentQuestion(null); setAwaitingNextQuestion(false); setPlayerRemoved(false); setRoomClosed(true);
     });
     socket.on('room-opened', () => { setRoomClosed(false); setPlayerRemoved(false); });
+    socket.on('app-release', handleAppRelease);
 
     return () => {
       socket.off('next-question');
@@ -208,6 +225,7 @@ export default function PlayPage() {
       socket.off('game-over');
       socket.off('game-ended');
       socket.off('room-closed'); socket.off('room-opened');
+      socket.off('app-release', handleAppRelease);
     };
   }, []);
 
@@ -306,10 +324,19 @@ export default function PlayPage() {
   };
 
   const handleAnswerClick = (optionLetter) => {
-    if (answered) return;
-    setAnswered(true);
-    setSelectedAnswer(optionLetter);
-    socket.emit('submit-answer', { answer: optionLetter });
+    if (answered || isSubmittingAnswer) return;
+    setIsSubmittingAnswer(true);
+    setAnswerSubmissionError('');
+    socket.timeout(5000).emit('submit-answer', { answer: optionLetter }, (error, response) => {
+      if (error || !response?.success) {
+        setIsSubmittingAnswer(false);
+        setAnswerSubmissionError(response?.error || 'We could not confirm your answer. Please try again.');
+        return;
+      }
+      setAnswered(true);
+      setSelectedAnswer(optionLetter);
+      setIsSubmittingAnswer(false);
+    });
   };
 
   const isShotInTheDark = currentQuestion?.gameType === 'shot-in-the-dark';
@@ -343,9 +370,7 @@ export default function PlayPage() {
     const nextSequence = [...simonInput, color];
     setSimonInput(nextSequence);
     if (nextSequence.length === currentQuestion.simonSequenceLength) {
-      setAnswered(true);
-      setSelectedAnswer('✓');
-      socket.emit('submit-answer', { answer: nextSequence });
+      handleAnswerClick(nextSequence);
     }
   };
 
@@ -525,6 +550,9 @@ export default function PlayPage() {
           {currentQuestion.gameType !== 'simon-says' && currentQuestion.gameType !== 'word-scramble' && <h2 className="text-xl font-black text-white text-center leading-snug mb-5 px-1">
             {currentQuestion.questionText}
           </h2>}
+
+          {!answered && isSubmittingAnswer && <p className="text-center text-purple-300 font-bold mb-4">Confirming your answer…</p>}
+          {!answered && answerSubmissionError && <p className="text-center text-rose-300 font-bold mb-4">{answerSubmissionError}</p>}
 
           {!answered && isPitchMeeting ? (
             <div className="space-y-6 text-center"><div className="bg-zinc-900 border border-sky-700 rounded-3xl p-6"><div className="flex justify-between gap-4 text-xl font-black"><span className="text-red-300 text-left">{currentQuestion.options[0]}<strong className="block text-4xl text-white mt-2">{pitchAllocation}</strong></span><span className="text-blue-300 text-right">{currentQuestion.options[1]}<strong className="block text-4xl text-white mt-2">{currentQuestion.pitchPoints - pitchAllocation}</strong></span></div><input type="range" min="0" max={currentQuestion.pitchPoints} step="1" value={currentQuestion.pitchPoints - (pitchAllocation ?? currentQuestion.pitchPoints / 2)} onChange={(e) => { const nextAllocation = currentQuestion.pitchPoints - Number(e.target.value); setPitchAllocation(nextAllocation); socket.emit('update-slider-draft', { answer: nextAllocation }); }} className="w-full mt-8 accent-sky-400" /></div><button onClick={() => handleAnswerClick(pitchAllocation)} className="w-full bg-sky-500 hover:bg-sky-400 text-zinc-950 p-4 rounded-2xl font-black text-lg">Lock In Allocation</button></div>
