@@ -34,12 +34,12 @@ function TimelineSortableItem({ item, position }) {
       ref={setNodeRef}
       type="button"
       style={{ transform: CSS.Transform.toString(transform), transition, touchAction: 'none' }}
-      className={`w-full min-h-14 rounded-2xl border px-4 py-3 text-left font-bold text-white flex items-center gap-3 shadow-lg ${isDragging ? 'bg-purple-600 border-purple-300 opacity-80 z-10' : 'bg-zinc-900 border-zinc-700 active:bg-zinc-800'}`}
+      className={`w-full min-h-16 rounded-2xl border px-4 py-3 text-left font-bold text-white flex items-center gap-3 shadow-lg ${isDragging ? 'bg-purple-600 border-purple-300 opacity-80 z-10' : 'bg-zinc-900 border-zinc-700 active:bg-zinc-800'}`}
       {...attributes}
       {...listeners}
     >
       <span className="w-8 h-8 shrink-0 rounded-lg bg-purple-500/25 text-purple-200 flex items-center justify-center font-mono text-sm">{position}</span>
-      <span className="flex-1 leading-snug">{item}</span>
+      <span className="flex-1 text-lg sm:text-xl leading-snug">{item}</span>
       <span className="text-zinc-500 text-xl" aria-hidden="true">⠿</span>
     </button>
   );
@@ -517,7 +517,7 @@ export default function PlayPage() {
           <div className="w-20 h-20 bg-[#B8C22E]/15 border border-[#B8C22E] text-[#B8C22E] rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-pulse">
             ✓
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">You&apos;re in the Party!</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">Hello Friend!</h2>
           <p className="text-zinc-400 text-sm">Sit tight! Deven and Ned will launch the next game shortly.</p>
         </div>
       )}

@@ -668,6 +668,9 @@ function syncPlayerToCurrentState(socket, partyState) {
   }
 
   if (partyState.status === 'results') {
+    const currentPlayer = partyState.players.find((player) => player.id === socket.id);
+    const isPlayerScoringRound = currentQuestion && currentQuestion.game_type !== 'pitch-meeting' && currentQuestion.game_type !== 'player-picker';
+    if (isPlayerScoringRound) socket.emit('round-points', { roundPoints: currentPlayer?.lastRoundPoints ?? 0 });
     socket.emit('awaiting-next-question');
     return;
   }
@@ -1082,6 +1085,7 @@ function showScores(io, partyState) {
       const roundPoints = wordScrambleSummary
         ? wordScrambleSummary.pointsEarned
         : partyState.answersThisRound[player.id]?.pointsEarned || 0;
+      player.lastRoundPoints = roundPoints;
       io.to(player.id).emit('round-points', { roundPoints });
     });
   }
