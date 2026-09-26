@@ -76,6 +76,7 @@ export default function PlayPage() {
   const [showPodiumPlace, setShowPodiumPlace] = useState(false);
   const [introTitle, setIntroTitle] = useState(null);
   const [roundPoints, setRoundPoints] = useState(null);
+  const [roundSequenceScore, setRoundSequenceScore] = useState(null);
   const [awaitingNextQuestion, setAwaitingNextQuestion] = useState(false);
   const [pickerSelected, setPickerSelected] = useState(false);
   const [playerRemoved, setPlayerRemoved] = useState(false);
@@ -114,6 +115,7 @@ export default function PlayPage() {
       setPodiumPlace(null);
       setShowPodiumPlace(false);
       setRoundPoints(null);
+      setRoundSequenceScore(null);
       setAwaitingNextQuestion(false);
       setPickerSelected(false);
     });
@@ -123,8 +125,9 @@ export default function PlayPage() {
       setAnswered(true);
     });
 
-    socket.on('round-points', ({ roundPoints: points }) => {
+    socket.on('round-points', ({ roundPoints: points, correctSequenceColors, sequenceLength }) => {
       setRoundPoints(points);
+      setRoundSequenceScore(correctSequenceColors === undefined ? null : { correct: correctSequenceColors, total: sequenceLength });
       setAwaitingNextQuestion(true);
     });
 
@@ -134,6 +137,7 @@ export default function PlayPage() {
       setAnswered(false);
       setSelectedAnswer(null);
       setRoundPoints(null);
+      setRoundSequenceScore(null);
       setAwaitingNextQuestion(true);
     });
 
@@ -536,7 +540,9 @@ export default function PlayPage() {
       {/* 3. QUESTION + ANSWER BUTTONS */}
       {joined && !isEditingName && awaitingNextQuestion && !podiumPlace && (
         <div className="text-center my-auto p-8 bg-zinc-900 border border-zinc-800 rounded-3xl mx-auto max-w-md w-full">
-          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+    <div className="w-16 h-16 bg-[#B8C22E]/15 border border-[#B8C22E] text-[#B8C22E] rounded-full flex items-center justify-center mx-auto mb-6 text-3xl font-bold">
+      ✓
+    </div>
           <h2 className="text-2xl font-black text-white mb-2">Round complete!</h2>
           <p className="text-zinc-400">Wait for Deven and Ned to start the next question.</p>
         </div>
@@ -557,7 +563,7 @@ export default function PlayPage() {
           {!answered && isPitchMeeting ? (
             <div className="space-y-6 text-center"><div className="bg-zinc-900 border border-sky-700 rounded-3xl p-6"><div className="flex justify-between gap-4 text-xl font-black"><span className="text-red-300 text-left">{currentQuestion.options[0]}<strong className="block text-4xl text-white mt-2">{pitchAllocation}</strong></span><span className="text-blue-300 text-right">{currentQuestion.options[1]}<strong className="block text-4xl text-white mt-2">{currentQuestion.pitchPoints - pitchAllocation}</strong></span></div><input type="range" min="0" max={currentQuestion.pitchPoints} step="1" value={currentQuestion.pitchPoints - (pitchAllocation ?? currentQuestion.pitchPoints / 2)} onChange={(e) => { const nextAllocation = currentQuestion.pitchPoints - Number(e.target.value); setPitchAllocation(nextAllocation); socket.emit('update-slider-draft', { answer: nextAllocation }); }} className="w-full mt-8 accent-sky-400" /></div><button onClick={() => handleAnswerClick(pitchAllocation)} className="w-full bg-sky-500 hover:bg-sky-400 text-zinc-950 p-4 rounded-2xl font-black text-lg">Lock In Allocation</button></div>
           ) : !answered && isWordScramble ? (
-            <div className="space-y-5"><p className="text-center text-[#B8C22E] font-bold">Tap letters to build as many words as you can.</p><div className="min-h-20 bg-zinc-900 border border-[#2A97CE] rounded-2xl p-4 flex items-center justify-center"><span className={`text-3xl font-black tracking-[0.2em] ${scrambleWord ? 'text-[#2A97CE]' : 'text-zinc-600'}`}>{scrambleWord || 'YOUR WORD'}</span></div><div className="grid grid-cols-4 gap-2 max-w-xs mx-auto">{scrambleLetterOrder.map((index) => { const letter = currentQuestion.scrambleLetters[index]; return <button key={`${letter}-${index}`} onClick={() => addScrambleLetter(index)} disabled={scrambleLetterIndexes.includes(index)} className={`aspect-square rounded-xl flex items-center justify-center text-2xl font-black shadow-lg transition active:scale-95 ${scrambleLetterIndexes.includes(index) ? 'bg-zinc-800 text-zinc-600 opacity-50' : 'bg-[#B8C22E] active:bg-[#a7b127] text-zinc-950'}`}>{letter}</button>; })}</div><form onSubmit={submitScrambleWord} className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setScrambleLetterIndexes((indexes) => indexes.slice(0, -1))} disabled={!scrambleLetterIndexes.length} className="bg-zinc-800 disabled:opacity-40 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl">Undo</button><button type="button" onClick={() => setScrambleLetterIndexes([])} disabled={!scrambleLetterIndexes.length} className="bg-zinc-800 disabled:opacity-40 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl">Clear Word</button><button type="submit" disabled={scrambleWord.length < 3} className="col-span-2 bg-[#B8C22E] disabled:opacity-40 hover:bg-[#a7b127] text-zinc-950 font-black py-4 rounded-2xl">Submit Word</button></form>{scrambleError && <p className="text-center text-rose-300 text-sm font-bold">{scrambleError}</p>}<div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4"><div className="flex justify-between text-sm font-bold mb-3"><span className="text-zinc-300">Your words</span><span className="text-[#2A97CE]">{scrambleWords.length} found</span></div>{scrambleWords.length ? <div className="flex flex-wrap gap-2">{scrambleWords.map((entry) => <span key={entry.word} className="bg-[#B8C22E]/15 border border-[#B8C22E] text-[#B8C22E] rounded-lg px-3 py-2 font-bold">{entry.word} <span className="text-[#2A97CE] text-xs">+{entry.pointsEarned}</span></span>)}</div> : <p className="text-zinc-500 text-sm">Words you add will appear here.</p>}</div></div>
+            <div className="space-y-5"><p className="text-center text-[#B8C22E] font-bold">Tap letters to build as many words as you can.</p><div className="min-h-20 bg-zinc-900 border border-[#2A97CE] rounded-2xl p-4 flex items-center justify-center"><span className={`text-3xl font-black tracking-[0.2em] ${scrambleWord ? 'text-[#2A97CE]' : 'text-zinc-600'}`}>{scrambleWord || 'YOUR WORD'}</span></div><div className="grid grid-cols-4 gap-2 max-w-xs mx-auto">{scrambleLetterOrder.map((index) => { const letter = currentQuestion.scrambleLetters[index]; return <button key={`${letter}-${index}`} onClick={() => addScrambleLetter(index)} disabled={scrambleLetterIndexes.includes(index)} className={`aspect-square rounded-xl flex items-center justify-center text-2xl font-black shadow-lg transition active:scale-95 ${scrambleLetterIndexes.includes(index) ? 'bg-zinc-800 text-zinc-600 opacity-50' : 'bg-[#B8C22E] active:bg-[#a7b127] text-zinc-950'}`}>{letter}</button>; })}</div><form onSubmit={submitScrambleWord} className="space-y-3"><button type="submit" disabled={scrambleWord.length < 3} className="w-full bg-[#2A97CE] disabled:opacity-40 hover:bg-[#2385b7] text-zinc-950 font-black py-4 rounded-2xl">Submit Word</button><div className="grid grid-cols-2 gap-3"><button type="button" onClick={() => setScrambleLetterIndexes((indexes) => indexes.slice(0, -1))} disabled={!scrambleLetterIndexes.length} className="bg-zinc-800 disabled:opacity-40 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl">Undo</button><button type="button" onClick={() => setScrambleLetterIndexes([])} disabled={!scrambleLetterIndexes.length} className="bg-zinc-800 disabled:opacity-40 hover:bg-zinc-700 text-white font-bold py-4 rounded-2xl">Clear Word</button></div></form>{scrambleError && <p className="text-center text-rose-300 text-sm font-bold">{scrambleError}</p>}<div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4"><div className="flex justify-between text-sm font-bold mb-3"><span className="text-zinc-300">Your words</span><span className="text-[#2A97CE]">{scrambleWords.length} found</span></div>{scrambleWords.length ? <div className="flex flex-wrap gap-2">{scrambleWords.map((entry) => <span key={entry.word} className="bg-[#B8C22E]/15 border border-[#B8C22E] text-[#B8C22E] rounded-lg px-3 py-2 font-bold">{entry.word} <span className="text-[#2A97CE] text-xs">+{entry.pointsEarned}</span></span>)}</div> : <p className="text-zinc-500 text-sm">Words you add will appear here.</p>}</div></div>
           ) : !answered && isOpenTrivia ? (
             <form onSubmit={(event) => { event.preventDefault(); if (openTriviaInput.trim()) handleAnswerClick(openTriviaInput.trim()); }} className="space-y-4"><p className="text-center text-orange-300 font-bold">Type your answer, then lock it in.</p><input autoFocus type="text" value={openTriviaInput} onChange={(event) => setOpenTriviaInput(event.target.value)} placeholder="Type your answer..." maxLength={120} className="w-full p-4 bg-zinc-900 border border-orange-700 rounded-2xl text-white text-lg font-bold focus:outline-none focus:border-orange-400" /><button type="submit" disabled={!openTriviaInput.trim()} className="w-full bg-orange-500 disabled:opacity-40 hover:bg-orange-400 text-zinc-950 p-4 rounded-2xl font-black text-lg">Lock In Answer</button></form>
           ) : !answered && isAutocompleteTrivia ? (
@@ -608,7 +614,7 @@ export default function PlayPage() {
           ) : (
             <div className="text-center py-12 bg-zinc-900 border border-zinc-800 rounded-3xl p-8 shadow-2xl">
               {isAutocompleteTrivia || isOpenTrivia ? <div className={`max-w-full overflow-x-auto whitespace-nowrap rounded-2xl px-4 py-3 mb-4 text-lg font-bold ${isOpenTrivia ? 'bg-orange-950/60 border border-orange-600 text-orange-200' : 'bg-teal-950/60 border border-teal-600 text-teal-200'}`}>{selectedAnswer}</div> : <div className="w-20 h-20 bg-purple-600/20 border border-purple-500 text-purple-400 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-bold animate-bounce">
-                {isTimeline ? '✓' : selectedAnswer}
+                {isTimeline || isSimonSays ? '✓' : selectedAnswer}
               </div>}
               <h2 className="text-2xl font-bold text-white mb-2">{selectedAnswer ? 'Locked In!' : 'Time is up'}</h2>
               <p className="text-zinc-400">Watch Deven and Ned for the round results.</p>
@@ -642,6 +648,7 @@ export default function PlayPage() {
             <p className="text-purple-300 uppercase tracking-[0.25em] text-sm font-black mb-4">This round</p>
             <p className={`text-7xl font-black ${roundPoints > 0 ? 'text-emerald-400' : 'text-zinc-400'}`}>{roundPoints > 0 ? `+${roundPoints}` : '0'}</p>
             <p className="text-xl font-bold text-white mt-3">{roundPoints === 1 ? 'point' : 'points'}</p>
+            {roundSequenceScore && <p className="text-cyan-300 font-bold mt-4">{roundSequenceScore.correct} of {roundSequenceScore.total} colours in the right place</p>}
             <p className="text-zinc-400 mt-6">{roundPoints > 0 ? 'Nice work!' : 'No points this round — keep going!'}</p>
           </div>
         </div>

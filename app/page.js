@@ -840,7 +840,7 @@ export default function MasterHostDashboard() {
                       <span className="text-xl">{p.emoji}</span>
                       <span className="font-bold text-white">{p.name}</span>
                     </div>
-                    <span className="font-mono text-emerald-400 font-extrabold text-lg">{p.score} pts</span>
+                    <div className="text-right"><span className="font-mono text-emerald-400 font-extrabold text-lg">{p.score} pts</span>{roundResults.gameType === 'simon-says' && <p className="text-cyan-300 text-sm font-bold">{p.roundCorrectColors}/{roundResults.simonSequence.length} correct</p>}</div>
                   </div>
               ))}
               </div>

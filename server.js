@@ -527,6 +527,7 @@ app.prepare().then(() => {
 
       partyState.answersThisRound[socket.id] = { answer: isShotInTheDark || isPitchMeeting ? numericAnswer : isOpenTrivia ? answer.trim().slice(0, 120) : answer, isCorrect, pointsEarned, timeTaken };
       delete partyState.sliderDraftsThisRound[socket.id];
+      if (isSimonSays) partyState.answersThisRound[socket.id].correctColors = correctSimonColors;
       if (isTimeline) partyState.answersThisRound[socket.id].correctItems = correctTimelineItems;
 
       const player = partyState.players.find(p => p.id === socket.id);
@@ -670,7 +671,15 @@ function syncPlayerToCurrentState(socket, partyState) {
   if (partyState.status === 'results') {
     const currentPlayer = partyState.players.find((player) => player.id === socket.id);
     const isPlayerScoringRound = currentQuestion && currentQuestion.game_type !== 'pitch-meeting' && currentQuestion.game_type !== 'player-picker';
-    if (isPlayerScoringRound) socket.emit('round-points', { roundPoints: currentPlayer?.lastRoundPoints ?? 0 });
+    if (isPlayerScoringRound) {
+      const isSimonSays = currentQuestion.game_type === 'simon-says';
+      socket.emit('round-points', {
+        roundPoints: currentPlayer?.lastRoundPoints ?? 0,
+        correctSequenceColors: isSimonSays ? currentPlayer?.lastRoundCorrectColors ?? 0 : undefined,
+        sequenceLength: isSimonSays ? JSON.parse(currentQuestion.simon_sequence || '[]').length : undefined
+      });
+      return;
+    }
     socket.emit('awaiting-next-question');
     return;
   }
@@ -1040,6 +1049,8 @@ function scoreOpenTrivia(io, partyState, correctAnswer, acceptedAnswers, socket,
 function buildRoundResultsPayload(partyState, q) {
   const isLastQuestion = partyState.currentQuestionIndex === partyState.questions.length - 1;
   const isLiarLiar = q.game_type === 'liar-liar';
+  const isSimonSays = q.game_type === 'simon-says';
+  const simonSequence = q.simon_sequence ? JSON.parse(q.simon_sequence) : [];
   const currentRanks = buildRankMap(partyState.players);
   return {
     gameType: q.game_type || 'trivia',
@@ -1047,7 +1058,7 @@ function buildRoundResultsPayload(partyState, q) {
     options: isLiarLiar ? ['True', 'False'] : [q.option_a, q.option_b, q.option_c, q.option_d],
     correctNumber: q.correct_number,
     herdMode: q.herd_mode || 'most',
-    simonSequence: q.simon_sequence ? JSON.parse(q.simon_sequence) : [],
+    simonSequence,
     autocompleteAnswers: q.autocomplete_answers ? JSON.parse(q.autocomplete_answers) : [],
     scrambleLetters: q.scramble_letters || '',
     pitchPoints: q.pitch_points || 100,
@@ -1057,6 +1068,7 @@ function buildRoundResultsPayload(partyState, q) {
     pitchScores: { ...partyState.pitchScores },
     players: partyState.players.map((player) => ({
       ...player,
+      roundCorrectColors: isSimonSays ? partyState.answersThisRound[player.id]?.correctColors || 0 : undefined,
       rankChange: partyState.previousRanks ? partyState.previousRanks.get(player.id) - currentRanks.get(player.id) : null
     })),
     isLastQuestion,
@@ -1085,8 +1097,16 @@ function showScores(io, partyState) {
       const roundPoints = wordScrambleSummary
         ? wordScrambleSummary.pointsEarned
         : partyState.answersThisRound[player.id]?.pointsEarned || 0;
+      const correctSequenceColors = q.game_type === 'simon-says'
+        ? partyState.answersThisRound[player.id]?.correctColors || 0
+        : undefined;
       player.lastRoundPoints = roundPoints;
-      io.to(player.id).emit('round-points', { roundPoints });
+      player.lastRoundCorrectColors = correctSequenceColors;
+      io.to(player.id).emit('round-points', {
+        roundPoints,
+        correctSequenceColors,
+        sequenceLength: q.game_type === 'simon-says' ? JSON.parse(q.simon_sequence || '[]').length : undefined
+      });
     });
   }
   io.to("PARTY").emit('round-results', buildRoundResultsPayload(partyState, q));
