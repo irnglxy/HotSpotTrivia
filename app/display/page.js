@@ -17,6 +17,7 @@ export default function DisplayScreen() {
   const [pickerPlayers, setPickerPlayers] = useState([]);
   const [pickerRun, setPickerRun] = useState(null);
   const [pickedPlayers, setPickedPlayers] = useState([]);
+  const [pickerEliminatingIds, setPickerEliminatingIds] = useState([]);
 
   useEffect(() => {
     // Rejoin after any Socket.IO reconnect so an idle display continues to
@@ -41,14 +42,14 @@ export default function DisplayScreen() {
     });
     socket.on('game-intro', (data) => { setStatus('intro'); setIntroTitle(data.title); });
     socket.on('player-picker-setup', () => setStatus('picker-setup'));
-    socket.on('player-picker-start', (data) => { setStatus('picker-selecting'); setPickerPlayers(data.players); setPickerRun(data); });
+    socket.on('player-picker-start', (data) => { setStatus('picker-selecting'); setPickerPlayers(data.players); setPickerRun(data); setPickerEliminatingIds([]); });
     socket.on('player-picker-result', (data) => { setStatus('picker-result'); setPickedPlayers(data.players); });
 
     socket.on('next-question', (qData) => {
       setStatus('playing');
       setIntroTitle(null);
       setCurrentQuestion(qData);
-      setTimeLeft(qData.timeLimit || 15);
+      setTimeLeft(qData.timeRemaining ?? qData.timeLimit ?? 15);
       setAnswerBreakdown(null);
       setRoundResults(null);
       setWinnerReveal(null);
@@ -89,6 +90,7 @@ export default function DisplayScreen() {
       setPickerPlayers([]);
       setPickerRun(null);
       setPickedPlayers([]);
+      setPickerEliminatingIds([]);
     });
     socket.on('room-closed', () => { setStatus('lobby'); setPlayers([]); });
 
@@ -114,11 +116,29 @@ export default function DisplayScreen() {
 
   useEffect(() => {
     if (status !== 'picker-selecting' || !pickerRun) return;
-    const timers = pickerRun.eliminatedPlayerIds.map((playerId, index) => setTimeout(() => {
-      setPickerPlayers((current) => current.filter((player) => player.id !== playerId));
-    }, ((index + 1) * pickerRun.duration) / (pickerRun.eliminatedPlayerIds.length + 1)));
+    const exitDuration = 650;
+    const usableDuration = Math.max(0, pickerRun.duration - exitDuration);
+    const timers = pickerRun.eliminatedPlayerIds.flatMap((playerId, index) => {
+      const startDelay = ((index + 1) * usableDuration) / (pickerRun.eliminatedPlayerIds.length + 1);
+      return [
+        setTimeout(() => setPickerEliminatingIds((ids) => [...ids, playerId]), startDelay),
+        setTimeout(() => {
+          setPickerPlayers((current) => current.filter((player) => player.id !== playerId));
+          setPickerEliminatingIds((ids) => ids.filter((id) => id !== playerId));
+        }, startDelay + exitDuration)
+      ];
+    });
     return () => timers.forEach(clearTimeout);
   }, [status, pickerRun]);
+
+  const pickerExitStyle = (playerId) => {
+    const seed = [...playerId].reduce((total, character) => ((total * 31) + character.charCodeAt(0)) >>> 0, 7);
+    const xDirection = seed % 2 === 0 ? -1 : 1;
+    const x = xDirection * (70 + (seed % 45));
+    const y = ((seed >>> 4) % 90) - 45;
+    const rotation = xDirection * (18 + ((seed >>> 9) % 25));
+    return { transform: `translate(${x}vw, ${y}vh) rotate(${rotation}deg) scale(0.55)`, opacity: 0 };
+  };
 
   // Timer countdown effect for the big screen
   useEffect(() => {
@@ -194,7 +214,7 @@ export default function DisplayScreen() {
 
         {status === 'picker-setup' && <div className="text-center py-24"><p className="text-fuchsia-300 uppercase tracking-[0.3em] font-bold mb-6">Player Picker</p><h2 className="text-6xl font-black text-white">Get Ready...</h2></div>}
 
-        {status === 'picker-selecting' && <div className="max-w-5xl mx-auto text-center"><p className="text-fuchsia-300 uppercase tracking-[0.3em] font-bold mb-6">Player Picker</p><h2 className="text-6xl font-black text-white mb-10">Who will remain?</h2><div className="flex flex-wrap justify-center gap-4">{pickerPlayers.map((player) => <div key={player.id} className="bg-zinc-900 border border-fuchsia-700 rounded-2xl px-6 py-5 text-2xl font-black text-white transition-all duration-700"><span className="text-4xl mr-3">{player.emoji}</span>{player.name}</div>)}</div></div>}
+        {status === 'picker-selecting' && <div className="max-w-5xl mx-auto text-center"><p className="text-fuchsia-300 uppercase tracking-[0.3em] font-bold mb-6">Player Picker</p><h2 className="text-6xl font-black text-white mb-10">Who will remain?</h2><div className="flex flex-wrap justify-center gap-4">{pickerPlayers.map((player) => { const isEliminating = pickerEliminatingIds.includes(player.id); return <div key={player.id} style={isEliminating ? pickerExitStyle(player.id) : undefined} className="bg-zinc-900 border border-fuchsia-700 rounded-2xl px-6 py-5 text-2xl font-black text-white transition-[transform,opacity] duration-700 ease-in"><span className="text-4xl mr-3">{player.emoji}</span>{player.name}</div>; })}</div></div>}
 
         {status === 'picker-result' && <div className="max-w-5xl mx-auto text-center"><p className="text-fuchsia-300 uppercase tracking-[0.3em] font-bold mb-10">Selected Players</p><div className="flex flex-wrap justify-center gap-5">{pickedPlayers.map((player) => <div key={player.id} className="bg-fuchsia-950 border-2 border-fuchsia-400 rounded-3xl px-8 py-7 text-3xl font-black text-white shadow-2xl"><span className="text-5xl mr-4">{player.emoji}</span>{player.name}</div>)}</div></div>}
 

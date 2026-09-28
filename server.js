@@ -193,10 +193,7 @@ app.prepare().then(() => {
         status: partyState.status,
         signupsOpen: partyState.signupsOpen
       });
-      if (partyState.status === 'pitch-options-entry') {
-        const q = partyState.questions[partyState.currentQuestionIndex];
-        socket.emit('request-pitch-options', { questionText: q?.question_text, options: [q?.option_a || '', q?.option_b || ''] });
-      }
+      syncHostToCurrentState(socket, partyState);
       console.log(`Host registered on master lobby.`);
     });
 
@@ -610,6 +607,8 @@ app.prepare().then(() => {
 function buildQuestionPayload(partyState, q) {
   const isLiarLiar = q.game_type === 'liar-liar';
   const gameType = q.game_type || (q.scramble_letters ? 'word-scramble' : q.pitch_points != null ? 'pitch-meeting' : 'trivia');
+  const timeLimit = q.time_limit || 15;
+  const elapsedMs = partyState.questionStartTime ? Date.now() - partyState.questionStartTime : 0;
   return {
     gameType,
     questionNumber: partyState.currentQuestionIndex + 1,
@@ -627,9 +626,82 @@ function buildQuestionPayload(partyState, q) {
     timelineItems: gameType === 'timeline' ? JSON.parse(q.timeline_items || '[]') : undefined,
     timelineTopLabel: gameType === 'timeline' ? q.timeline_top_label : undefined,
     timelineBottomLabel: gameType === 'timeline' ? q.timeline_bottom_label : undefined,
-    timeLimit: q.time_limit || 15,
+    timeLimit,
+    timeRemaining: partyState.status === 'playing' ? Math.max(0, Math.ceil((timeLimit * 1000 - elapsedMs) / 1000)) : timeLimit,
+    totalPlayers: partyState.players.length,
     isLastQuestion: partyState.currentQuestionIndex === partyState.questions.length - 1
   };
+}
+
+function syncHostToCurrentState(socket, partyState) {
+  const question = partyState.questions[partyState.currentQuestionIndex];
+
+  if (partyState.status === 'intro' && question) {
+    socket.emit('game-intro', { title: partyState.gameTitle, gameType: question.game_type || 'trivia' });
+    return;
+  }
+
+  if (partyState.status === 'playing' && question) {
+    socket.emit('next-question', buildQuestionPayload(partyState, question));
+    const totalAnswers = question.game_type === 'word-scramble'
+      ? Object.values(partyState.scrambleWordsThisRound).reduce((total, words) => total + words.length, 0)
+      : Object.keys(partyState.answersThisRound).length;
+    socket.emit('player-answered-update', { totalAnswers, totalPlayers: partyState.players.length });
+    return;
+  }
+
+  if (partyState.status === 'answer-entry' && question?.game_type === 'shot-in-the-dark') {
+    socket.emit('request-correct-number', { questionText: question.question_text, correctNumber: question.correct_number ?? '' });
+    return;
+  }
+
+  if (partyState.status === 'answer-entry' && question?.game_type === 'open-trivia') {
+    socket.emit('request-open-trivia-scoring', {
+      questionText: question.question_text,
+      correctAnswer: question.correct_answer || '',
+      answerGroups: groupOpenTriviaAnswers(partyState.answersThisRound)
+    });
+    return;
+  }
+
+  if (partyState.status === 'pitch-options-entry' && question) {
+    socket.emit('request-pitch-options', { questionText: question.question_text, options: [question.option_a || '', question.option_b || ''] });
+    return;
+  }
+
+  if (partyState.status === 'answer-reveal' && partyState.lastBreakdown) {
+    socket.emit('answer-breakdown', partyState.lastBreakdown);
+    return;
+  }
+
+  if (partyState.status === 'results' && question) {
+    socket.emit('round-results', buildRoundResultsPayload(partyState, question));
+    return;
+  }
+
+  if (partyState.status === 'winner-reveal' && partyState.lastWinner) {
+    socket.emit('winner-reveal', partyState.lastWinner);
+    return;
+  }
+
+  if (partyState.status === 'game-over') {
+    socket.emit('game-over', { players: [...partyState.players].sort((a, b) => b.score - a.score) });
+    return;
+  }
+
+  if (partyState.status === 'picker-setup') {
+    socket.emit('player-picker-setup', { totalPlayers: partyState.players.length });
+    return;
+  }
+
+  if (partyState.status === 'picker-selecting' && partyState.pickerRun) {
+    socket.emit('player-picker-start', partyState.pickerRun);
+    return;
+  }
+
+  if (partyState.status === 'picker-result' && partyState.pickerRun) {
+    socket.emit('player-picker-result', { players: partyState.pickerRun.selectedPlayers });
+  }
 }
 
 function syncPlayerToCurrentState(socket, partyState) {

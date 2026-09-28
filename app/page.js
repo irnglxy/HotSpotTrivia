@@ -111,7 +111,12 @@ export default function MasterHostDashboard() {
   };
 
   useEffect(() => {
-    socket.emit('host-master-lobby');
+    // Re-register after a refresh or temporary connection drop. The server then
+    // sends the active host view back, instead of leaving the host in the library.
+    const registerHost = () => socket.emit('host-master-lobby');
+    socket.on('connect', registerHost);
+    if (socket.connected) registerHost();
+    else socket.connect();
 
     socket.on('update-players', (data) => setPlayers(data.players));
     socket.on('master-update', (data) => setSignupsOpen(data.signupsOpen !== false));
@@ -124,8 +129,8 @@ export default function MasterHostDashboard() {
       setView('question');
       setIntroTitle(null);
       setCurrentQuestion(qData);
-      setTimeLeft(qData.timeLimit || 15);
-      setAnswerStats({ totalAnswers: 0, totalPlayers: players.length });
+      setTimeLeft(qData.timeRemaining ?? qData.timeLimit ?? 15);
+      setAnswerStats({ totalAnswers: 0, totalPlayers: qData.totalPlayers || 0 });
       setAnswerBreakdown(null);
       setRoundResults(null);
       setWinnerReveal(null);
@@ -175,6 +180,7 @@ export default function MasterHostDashboard() {
     socket.on('player-picker-result', (data) => { setPickedPlayers(data.players); setView('picker-result'); });
 
     return () => {
+      socket.off('connect', registerHost);
       socket.off('host-master-lobby');
       socket.off('master-update');
       socket.off('update-players');
@@ -194,7 +200,7 @@ export default function MasterHostDashboard() {
       socket.off('player-picker-start');
       socket.off('player-picker-result');
     };
-  }, [players.length]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
