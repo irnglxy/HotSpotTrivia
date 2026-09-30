@@ -51,6 +51,24 @@ const gameTypeClass = (gameType) => ({
   'open-trivia': 'bg-orange-950 text-orange-300'
 }[gameType] || 'bg-blue-950 text-blue-300');
 
+function BiggestClimbCallout({ players }) {
+  const rankedPlayers = [...players].sort((a, b) => b.score - a.score);
+  const biggestClimb = Math.max(0, ...rankedPlayers.map((player) => player.rankChange || 0));
+  if (biggestClimb === 0) return null;
+
+  const player = rankedPlayers.find((candidate) => candidate.rankChange === biggestClimb);
+  const currentRank = rankedPlayers.findIndex((candidate) => candidate.id === player.id) + 1;
+
+  return (
+    <div className="mb-6 rounded-2xl border border-emerald-500/60 bg-emerald-950/40 p-4 shadow-lg">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-300">Biggest climb this round</p>
+      <p className="mt-2 text-lg font-bold text-white">
+        <span className="mr-2 text-2xl">{player.emoji}</span>{player.name} climbed <span className="text-emerald-300">{biggestClimb} place{biggestClimb === 1 ? '' : 's'}</span> to <span className="text-emerald-300">#{currentRank}</span>
+      </p>
+    </div>
+  );
+}
+
 export default function MasterHostDashboard() {
   const [view, setView] = useState('library'); // 'library', 'lobby', 'question', 'answer-reveal', 'results', 'winner-reveal', 'game-over', 'builder'
   
@@ -833,6 +851,8 @@ export default function MasterHostDashboard() {
             {roundResults.gameType === 'autocomplete-trivia' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.correctAnswer}</span></p>}
             {roundResults.gameType === 'open-trivia' && <p className="text-zinc-400 mb-6">Correct answer: <span className="text-emerald-400 font-bold text-2xl">{roundResults.correctAnswer}</span></p>}
 
+            {!roundResults.isLastQuestion && <BiggestClimbCallout players={roundResults.players} />}
+
             <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl mb-8">
               <h2 className="text-xl font-bold text-white mb-4">Game Leaderboard</h2>
               <div className="max-h-[55vh] overflow-y-auto space-y-3 pr-2">
@@ -899,17 +919,19 @@ export default function MasterHostDashboard() {
             <h1 className="text-4xl font-black text-purple-400 mb-2">Final Standings</h1>
             <p className="text-zinc-400 mb-8">How everyone finished this game</p>
 
-            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl space-y-3 mb-8">
-              {finalScores.map((p, idx) => (
-                <div key={p.id} className="flex justify-between items-center bg-zinc-950 p-4 rounded-xl border border-zinc-800">
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-zinc-500 w-6">#{idx + 1}</span>
-                    <span className="text-xl">{p.emoji}</span>
-                    <span className="font-bold text-white">{p.name}</span>
+            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl mb-8">
+              <div className="max-h-[55vh] overflow-y-auto space-y-3 pr-2">
+                {finalScores.map((p, idx) => (
+                  <div key={p.id} className="flex justify-between items-center bg-zinc-950 p-4 rounded-xl border border-zinc-800">
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-zinc-500 w-6">#{idx + 1}</span>
+                      <span className="text-xl">{p.emoji}</span>
+                      <span className="font-bold text-white">{p.name}</span>
+                    </div>
+                    <span className="font-mono text-emerald-400 font-extrabold text-lg">{p.score} pts</span>
                   </div>
-                  <span className="font-mono text-emerald-400 font-extrabold text-lg">{p.score} pts</span>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
 
             <button onClick={endGame} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 py-4 rounded-xl shadow-xl transition">

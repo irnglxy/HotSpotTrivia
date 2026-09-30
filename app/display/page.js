@@ -3,6 +3,29 @@
 import React, { useEffect, useState } from 'react';
 import { socket } from '@/lib/socket';
 
+function TopTwentyScoreboard({ title, players, showRankChange = false, highlightWinner = false }) {
+  const topTwenty = [...players].sort((a, b) => b.score - a.score).slice(0, 20);
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-3xl shadow-2xl">
+      <h3 className="text-xl font-bold text-white mb-3">{title}</h3>
+      <div className="grid grid-cols-2 gap-2">
+        {topTwenty.map((player, index) => (
+          <div key={player.id} className={`flex justify-between items-center gap-2 p-2.5 rounded-xl border text-sm ${highlightWinner && index === 0 ? 'bg-purple-950/60 border-purple-500' : 'bg-zinc-950 border-zinc-800'}`}>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className={`font-black w-6 shrink-0 text-center ${highlightWinner && index === 0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{index + 1}</span>
+              {showRankChange && player.rankChange !== null && player.rankChange !== 0 && <span className={`font-black shrink-0 ${player.rankChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{player.rankChange > 0 ? (player.rankChange > 10 ? '⇈' : '↑') : (player.rankChange < -10 ? '⇊' : '↓')}</span>}
+              <span className="text-xl shrink-0">{player.emoji}</span>
+              <span className="font-bold text-white truncate">{player.name}</span>
+            </div>
+            <span className="font-mono text-emerald-400 font-black shrink-0">{player.score} pts</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function DisplayScreen() {
   const [players, setPlayers] = useState([]);
   const [status, setStatus] = useState('lobby'); // 'lobby', 'playing', 'answer-reveal', 'results', 'winner-reveal', 'game-over'
@@ -392,22 +415,7 @@ export default function DisplayScreen() {
               {roundResults.gameType === 'open-trivia' && <p className="text-zinc-400 text-lg">Correct answer: <span className="text-emerald-400 font-extrabold text-xl">{roundResults.correctAnswer}</span></p>}
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-3xl shadow-2xl space-y-2">
-              <h3 className="text-xl font-bold text-white mb-3">Current Leaderboard</h3>
-              {[...roundResults.players]
-                .sort((a, b) => b.score - a.score)
-                .map((p, idx) => (
-                  <div key={p.id} className="flex justify-between items-center bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 text-base">
-                    <div className="flex items-center gap-3">
-                      <span className="font-black text-zinc-500 w-7 text-lg">#{idx + 1}</span>
-                      {p.rankChange !== null && p.rankChange !== 0 && <span className={`font-black ${p.rankChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`} title={`${Math.abs(p.rankChange)} place${Math.abs(p.rankChange) === 1 ? '' : 's'} ${p.rankChange > 0 ? 'up' : 'down'}`}>{p.rankChange > 0 ? (p.rankChange > 10 ? '⇈' : '↑') : (p.rankChange < -10 ? '⇊' : '↓')}</span>}
-                      <span className="text-2xl">{p.emoji}</span>
-                      <span className="font-bold text-white">{p.name}</span>
-                    </div>
-                    <span className="font-mono text-emerald-400 font-black text-lg">{p.score} pts</span>
-                  </div>
-              ))}
-            </div>
+            <TopTwentyScoreboard title="Current Top 20" players={roundResults.players} showRankChange />
           </div>
         )}
 
@@ -443,18 +451,7 @@ export default function DisplayScreen() {
               <p className="text-zinc-400 text-xl">How everyone finished this game</p>
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-4">
-              {finalScores.map((p, idx) => (
-                <div key={p.id} className={`flex justify-between items-center p-5 rounded-2xl border text-xl ${idx === 0 ? 'bg-purple-950/60 border-purple-500 shadow-purple-500/20 shadow-xl scale-105' : 'bg-zinc-950 border-zinc-800'}`}>
-                  <div className="flex items-center gap-4">
-                    <span className={`font-black w-8 text-2xl ${idx === 0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{idx + 1}</span>
-                    <span className="text-3xl">{p.emoji}</span>
-                    <span className="font-bold text-white">{p.name}</span>
-                  </div>
-                  <span className="font-mono text-emerald-400 font-black text-2xl">{p.score} pts</span>
-                </div>
-              ))}
-            </div>
+            <TopTwentyScoreboard title="Final Top 20" players={finalScores} highlightWinner />
           </div>
         )}
 
