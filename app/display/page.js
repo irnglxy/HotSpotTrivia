@@ -5,22 +5,28 @@ import { socket } from '@/lib/socket';
 
 function TopTwentyScoreboard({ title, players, showRankChange = false, highlightWinner = false }) {
   const topTwenty = [...players].sort((a, b) => b.score - a.score).slice(0, 20);
+  const renderPlayer = (player, index) => (
+    <div key={player.id} className={`flex justify-between items-center gap-3 p-3 rounded-xl border text-lg ${highlightWinner && index === 0 ? 'bg-purple-950/60 border-purple-500' : 'bg-zinc-950 border-zinc-800'}`}>
+      <div className="flex min-w-0 items-center gap-3">
+        <span className={`font-black w-8 shrink-0 text-center text-xl ${highlightWinner && index === 0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{index + 1}</span>
+        {showRankChange && player.rankChange !== null && player.rankChange !== 0 && <span className={`font-black shrink-0 text-xl ${player.rankChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{player.rankChange > 0 ? (player.rankChange > 10 ? '⇈' : '↑') : (player.rankChange < -10 ? '⇊' : '↓')}</span>}
+        <span className="text-2xl shrink-0">{player.emoji}</span>
+        <span className="font-bold text-white truncate">{player.name}</span>
+      </div>
+      <span className="font-mono text-emerald-400 font-black shrink-0 text-xl">{player.score} pts</span>
+    </div>
+  );
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-3xl shadow-2xl">
-      <h3 className="text-xl font-bold text-white mb-3">{title}</h3>
-      <div className="grid grid-cols-2 gap-2">
-        {topTwenty.map((player, index) => (
-          <div key={player.id} className={`flex justify-between items-center gap-2 p-2.5 rounded-xl border text-sm ${highlightWinner && index === 0 ? 'bg-purple-950/60 border-purple-500' : 'bg-zinc-950 border-zinc-800'}`}>
-            <div className="flex min-w-0 items-center gap-2">
-              <span className={`font-black w-6 shrink-0 text-center ${highlightWinner && index === 0 ? 'text-yellow-400' : 'text-zinc-500'}`}>#{index + 1}</span>
-              {showRankChange && player.rankChange !== null && player.rankChange !== 0 && <span className={`font-black shrink-0 ${player.rankChange > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{player.rankChange > 0 ? (player.rankChange > 10 ? '⇈' : '↑') : (player.rankChange < -10 ? '⇊' : '↓')}</span>}
-              <span className="text-xl shrink-0">{player.emoji}</span>
-              <span className="font-bold text-white truncate">{player.name}</span>
-            </div>
-            <span className="font-mono text-emerald-400 font-black shrink-0">{player.score} pts</span>
-          </div>
-        ))}
+    <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-2xl">
+      <h3 className="text-3xl font-black text-white mb-5">{title}</h3>
+      <div className="grid grid-cols-2 divide-x divide-zinc-700">
+        <div className="space-y-2 pr-6">
+          {topTwenty.slice(0, 10).map((player, index) => renderPlayer(player, index))}
+        </div>
+        <div className="space-y-2 pl-6">
+          {topTwenty.slice(10).map((player, index) => renderPlayer(player, index + 10))}
+        </div>
       </div>
     </div>
   );
@@ -406,7 +412,7 @@ export default function DisplayScreen() {
 
         {/* STATE 4: ROUND RESULTS & LEADERBOARD */}
         {status === 'results' && roundResults && (
-          <div className="max-w-3xl mx-auto text-center space-y-4">
+          <div className="max-w-5xl mx-auto text-center space-y-4">
             <div className="space-y-1">
               <h2 className="text-3xl md:text-4xl font-black text-purple-400">Round Complete!</h2>
               {roundResults.gameType === 'trivia' && <p className="text-zinc-400 text-lg">Correct Answer was: <span className="text-emerald-400 font-extrabold text-xl">[{roundResults.correctAnswer}]</span></p>}
@@ -445,7 +451,7 @@ export default function DisplayScreen() {
 
         {/* STATE 6: FINAL STANDINGS */}
         {status === 'game-over' && (
-          <div className="max-w-3xl mx-auto text-center space-y-8">
+          <div className="max-w-5xl mx-auto text-center space-y-8">
             <div className="space-y-2">
               <h2 className="text-5xl font-black text-purple-400">Final Standings</h2>
               <p className="text-zinc-400 text-xl">How everyone finished this game</p>
